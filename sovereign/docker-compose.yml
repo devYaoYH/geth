@@ -9,7 +9,6 @@ name: sovereign-node
 networks:
   edge:
   litellm:
-  authentik:   # Authentik <-> its Postgres/Redis. Nothing else can reach them.
 
 volumes:
   caddy_data:
@@ -17,10 +16,6 @@ volumes:
   litellm_db:
   forgejo_data:
   radicale_data:
-  authentik_db:        # demolition pending — see Phase 5 note in services
-  authentik_redis:     # demolition pending
-  authentik_media:     # demolition pending
-  authentik_templates: # demolition pending
   pocketid_data:
   agent_workspace:
 
@@ -140,74 +135,6 @@ services:
       OAUTH2_PROXY_REVERSE_PROXY: "true"
       OAUTH2_PROXY_SET_XAUTHREQUEST: "true"
     networks: [edge]
-
-  # --- DEMOLITION PENDING (Phase 5) -------------------------------------------
-  # Authentik parked at auth-old.<domain> until Pocket ID passkey login is
-  # verified end-to-end by the operator. Then: remove these four services,
-  # final restic snapshot tagged authentik-final, remove volumes.
-
-  authentik:
-    image: ghcr.io/goauthentik/server:2025.6@sha256:acde6a1fc963301fe27f7e86facb9aefbc68eb523210bcab5679a899e6bf72d5
-    container_name: authentik
-    restart: unless-stopped
-    command: server
-    depends_on:
-      - authentik-db
-      - authentik-redis
-    environment:
-      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
-      AUTHENTIK_REDIS__HOST: authentik-redis
-      AUTHENTIK_POSTGRESQL__HOST: authentik-db
-      AUTHENTIK_POSTGRESQL__USER: authentik
-      AUTHENTIK_POSTGRESQL__NAME: authentik
-      AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_DB_PASSWORD}
-      AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
-    volumes:
-      - authentik_media:/media
-      - authentik_templates:/templates
-    networks: [edge, authentik]
-
-  authentik-worker:
-    image: ghcr.io/goauthentik/server:2025.6@sha256:acde6a1fc963301fe27f7e86facb9aefbc68eb523210bcab5679a899e6bf72d5
-    container_name: authentik-worker
-    restart: unless-stopped
-    command: worker
-    depends_on:
-      - authentik-db
-      - authentik-redis
-    environment:
-      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
-      AUTHENTIK_REDIS__HOST: authentik-redis
-      AUTHENTIK_POSTGRESQL__HOST: authentik-db
-      AUTHENTIK_POSTGRESQL__USER: authentik
-      AUTHENTIK_POSTGRESQL__NAME: authentik
-      AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_DB_PASSWORD}
-      AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
-    volumes:
-      - authentik_media:/media
-      - authentik_templates:/templates
-    networks: [authentik]
-
-  authentik-db:
-    image: postgres:16-alpine@sha256:16bc17c64a573ef34162af9298258d1aec548232985b33ed7b1eac33ba35c229
-    container_name: authentik-db
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: authentik
-      POSTGRES_USER: authentik
-      POSTGRES_PASSWORD: ${AUTHENTIK_DB_PASSWORD}
-    volumes:
-      - authentik_db:/var/lib/postgresql/data
-    networks: [authentik]
-
-  authentik-redis:
-    image: redis:7-alpine@sha256:7aec734b2bb298a1d769fd8729f13b8514a41bf90fcdd1f38ec52267fbaa8ee6
-    container_name: authentik-redis
-    restart: unless-stopped
-    command: --save 60 1 --loglevel warning
-    volumes:
-      - authentik_redis:/data
-    networks: [authentik]
 
   # --- trusted-people dashboard ----------------------------------------------
   # Status/health only for now; configured entirely by YAML in git

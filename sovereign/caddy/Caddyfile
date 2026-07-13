@@ -57,13 +57,6 @@ auth.{$NODE_DOMAIN} {
 	reverse_proxy pocket-id:1411
 }
 
-# DEMOLITION PENDING (Phase 5): Authentik parked here until Pocket ID passkey
-# login is verified end-to-end. Ring 0 — operator only.
-auth-old.{$NODE_DOMAIN} {
-	import ring0
-	reverse_proxy authentik:9000
-}
-
 # Ring 1 — trusted-people dashboard (status + links; config lives in git)
 home.{$NODE_DOMAIN} {
 	import ring1
