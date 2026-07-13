@@ -168,8 +168,8 @@ services:
     environment:
       ANTHROPIC_BASE_URL: http://litellm:4000
       ANTHROPIC_AUTH_TOKEN: ${AGENT_LLM_KEY:-}       # virtual key — never a provider key
-      ANTHROPIC_MODEL: claude-sonnet                 # LiteLLM alias
-      ANTHROPIC_SMALL_FAST_MODEL: claude-haiku
+      ANTHROPIC_MODEL: ${AGENT_MODEL:-claude-sonnet}             # LiteLLM alias
+      ANTHROPIC_SMALL_FAST_MODEL: ${AGENT_FAST_MODEL:-claude-haiku}
       AGENT_FORGEJO_TOKEN: ${AGENT_FORGEJO_TOKEN:-}  # scope: node-config + apps/* only
       NODE_CONFIG_REPO: ${NODE_CONFIG_REPO:-}
     volumes:
