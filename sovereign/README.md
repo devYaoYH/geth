@@ -1,0 +1,69 @@
+# sovereign-node
+
+A personal sovereign cloud: self-hosted identity, services, and (eventually) agents,
+running on hardware you own, behind a front door you control.
+
+This is the **Tier 3 MVP** — the compute-box profile for people who already have a
+domain and are comfortable with Docker. See `docs/PHILOSOPHY.md` for why this exists,
+`docs/DESIGN.md` for how it fits together, and `docs/ROADMAP.md` for where it goes.
+
+## What's in the box (MVP)
+
+| Service   | Role                                        | Ring    |
+|-----------|---------------------------------------------|---------|
+| Caddy     | Reverse proxy, TLS, the only exposed thing  | door    |
+| LiteLLM   | LLM gateway — virtual keys, budgets, audit  | ring 0  |
+| Postgres  | LiteLLM's key/spend database                | ring 0  |
+| Forgejo   | Git platform, config-as-code source of truth| ring 1  |
+| Radicale  | CalDAV/CardDAV calendar + contacts (optional profile) | ring 1 |
+
+Everything else (gog/gws Google bridge, feeds, photos, the agent runtime slot)
+arrives in later milestones — see the roadmap.
+
+## Quickstart
+
+1. Copy env and fill it in:
+
+       cp .env.example .env
+       # generate strong values:  openssl rand -hex 32
+
+2. Point DNS at this box (or your front-door anchor):
+   `git.yourdomain`, `llm.yourdomain`, `cal.yourdomain` → your public IP / VPS.
+   No public exposure wanted? Leave DNS unset and use the `lan` Caddyfile variant.
+
+3. Review `manifest/node.example.yaml` and copy it to `manifest/node.yaml`.
+   The manifest records *where each concern lives*. The MVP reads it as
+   documentation; the installer-agent (M1) will read it as instructions.
+
+4. Bring it up:
+
+       docker compose up -d
+       docker compose --profile apps up -d     # include Radicale
+
+5. First-run: create your Forgejo admin at `https://git.yourdomain`, then create a
+   repo named `node-config` and push this directory to it. From now on, config
+   changes flow through git. Hand-edits on the box are considered migration debt.
+
+6. Backups (not optional — this box is your identity):
+
+       cp scripts/backup.env.example scripts/backup.env   # fill in restic/B2 creds
+       ./scripts/backup.sh                                 # then cron it daily
+
+## Layout
+
+    docker-compose.yml      the stack
+    .env.example            secrets template (never commit .env)
+    caddy/Caddyfile         routes, annotated by trust ring
+    config/litellm.yaml     model list + router settings
+    manifest/               placement manifest + app manifest v0 (the contracts)
+    scripts/backup.sh       restic volume backup
+    docs/                   PHILOSOPHY, DESIGN, ROADMAP
+
+## Non-negotiables
+
+- `.env` and `scripts/backup.env` never enter git.
+- The box accepts no inbound connections except through Caddy (and Forgejo SSH if
+  you enable it deliberately).
+- Agents, when they arrive, get LiteLLM *virtual* keys — never provider keys.
+- Internal calls are deny-by-default: apps receive only the scoped credentials
+  their manifest declares (see manifest/app.example.toml).

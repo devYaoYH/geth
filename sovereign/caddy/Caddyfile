@@ -1,0 +1,55 @@
+# The front door. Every route is annotated with its trust ring.
+# Ring 0 = you only (admin) · Ring 1 = trusted people · Ring 2 = public internet.
+#
+# MVP enforcement is coarse (IP-based + app-level auth). The policy engine that
+# replaces these snippets with identity-aware, agent-drafted / human-approved
+# rules is milestone M2 in docs/ROADMAP.md.
+
+{
+	email {$ACME_EMAIL}
+}
+
+# --- reusable guards ---------------------------------------------------------
+
+(ring0) {
+	# Admin surfaces: LAN / VPN / tunnel only. Adjust ranges to your overlay.
+	@outside not remote_ip private_ranges 100.64.0.0/10
+	respond @outside "closed door" 403
+}
+
+(ring1) {
+	# Trusted-people surfaces: same network guard for the MVP; the apps behind
+	# these routes ALSO have their own logins (Forgejo, Radicale). Defense in
+	# depth until the identity-aware proxy lands.
+	@outside not remote_ip private_ranges 100.64.0.0/10
+	respond @outside "closed door" 403
+}
+
+# --- routes -------------------------------------------------------------------
+
+# Ring 1 — git platform (Forgejo has its own auth; registration disabled)
+git.{$NODE_DOMAIN} {
+	import ring1
+	reverse_proxy forgejo:3000
+}
+
+# Ring 0 — LLM gateway. The /ui admin and the API are for you and, later, for
+# agents holding virtual keys. Never ring 2.
+llm.{$NODE_DOMAIN} {
+	import ring0
+	reverse_proxy litellm:4000
+}
+
+# Ring 1 — calendar/contacts (enable with:  docker compose --profile apps up -d)
+cal.{$NODE_DOMAIN} {
+	import ring1
+	reverse_proxy radicale:5232
+}
+
+# Ring 2 — the deliberately public surface. Empty by design in the MVP.
+# When you're ready: a busy-only calendar feed, a blog, a booking page.
+# Every line added here is attack surface; add slowly, remove eagerly.
+#
+# {$NODE_DOMAIN} {
+# 	respond "hello from a sovereign node" 200
+# }

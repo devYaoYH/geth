@@ -1,0 +1,105 @@
+name: sovereign-node
+
+# Trust boundaries are enforced by networks, not by good intentions.
+#   edge     — only things Caddy is allowed to reach. Caddy is the sole ingress.
+#   litellm  — LiteLLM <-> its database. Nothing else can reach Postgres.
+# Future agent runtimes join `edge` only, and talk to services through their
+# published ports — never to databases, never to the docker socket.
+
+networks:
+  edge:
+  litellm:
+
+volumes:
+  caddy_data:
+  caddy_config:
+  litellm_db:
+  forgejo_data:
+  radicale_data:
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      NODE_DOMAIN: ${NODE_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [edge]
+
+  litellm:
+    # Pin a specific release tag before you rely on this in anger.
+    image: ghcr.io/berriai/litellm:main-stable
+    container_name: litellm
+    restart: unless-stopped
+    depends_on:
+      - litellm-db
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    environment:
+      DATABASE_URL: postgresql://litellm:${LITELLM_DB_PASSWORD}@litellm-db:5432/litellm
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}   # ring 0 — admin only
+      LITELLM_SALT_KEY: ${LITELLM_SALT_KEY}       # set once, never rotate casually
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      STORE_MODEL_IN_DB: "True"
+    volumes:
+      - ./config/litellm.yaml:/app/config.yaml:ro
+    networks: [edge, litellm]
+
+  litellm-db:
+    image: postgres:16-alpine
+    container_name: litellm-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: litellm
+      POSTGRES_USER: litellm
+      POSTGRES_PASSWORD: ${LITELLM_DB_PASSWORD}
+    volumes:
+      - litellm_db:/var/lib/postgresql/data
+    networks: [litellm]
+
+  forgejo:
+    # Check https://forgejo.org for the current stable tag and pin it.
+    image: codeberg.org/forgejo/forgejo:11
+    container_name: forgejo
+    restart: unless-stopped
+    environment:
+      USER_UID: "1000"
+      USER_GID: "1000"
+      FORGEJO__server__DOMAIN: git.${NODE_DOMAIN}
+      FORGEJO__server__ROOT_URL: https://git.${NODE_DOMAIN}/
+      FORGEJO__server__SSH_PORT: "2222"
+      FORGEJO__service__DISABLE_REGISTRATION: "true"   # you, then invited users only
+    volumes:
+      - forgejo_data:/data
+    networks: [edge]
+    # SSH for git push. Deliberate second ingress — remove if HTTPS-only suits you.
+    ports:
+      - "2222:22"
+
+  radicale:
+    profiles: [apps]
+    image: tomsquest/docker-radicale:latest
+    container_name: radicale
+    restart: unless-stopped
+    volumes:
+      - radicale_data:/data
+    networks: [edge]
+
+  # ---------------------------------------------------------------------------
+  # Coming in later milestones (see docs/ROADMAP.md) — intentionally not yet here:
+  #
+  #   gog-bridge   — gog/gws MCP container: mail/calendar/drive via your Google
+  #                  account, read-only by default, --gmail-no-send at the door.
+  #   agents       — the agent runtime slot: jailed, edge-network only, LiteLLM
+  #                  virtual key injected, no docker socket, no vault access.
+  #   miniflux     — pull-based feed aggregator (your algorithm-free timeline).
+  # ---------------------------------------------------------------------------

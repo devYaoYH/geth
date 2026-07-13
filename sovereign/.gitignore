@@ -1,0 +1,3 @@
+.env
+scripts/backup.env
+manifest/node.yaml

@@ -1,0 +1,46 @@
+# LiteLLM proxy config — the single gate between this node and model providers.
+#
+# Principles:
+#  - Provider keys enter here (via env) and never leave.
+#  - Every consumer — you, scripts, future agents — gets a VIRTUAL key minted in
+#    the UI (https://llm.<domain>/ui) with its own budget, rate limit, and model
+#    allowlist. Revoking one consumer never rotates a provider key.
+#  - Local inference (Tier 4) is added as just another model entry; consumers
+#    never know or care where inference physically runs.
+
+model_list:
+  - model_name: claude-sonnet
+    litellm_params:
+      model: anthropic/claude-sonnet-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  - model_name: claude-haiku
+    litellm_params:
+      model: anthropic/claude-haiku-4-5
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  - model_name: gpt
+    litellm_params:
+      model: openai/gpt-5
+      api_key: os.environ/OPENAI_API_KEY
+
+  # Tier 4 preview — local inference via an OpenAI-compatible server (Ollama,
+  # vLLM, MLX, a DGX box). Uncomment and point at your hardware:
+  # - model_name: local-small
+  #   litellm_params:
+  #     model: openai/qwen3
+  #     api_base: http://inference-box:11434/v1
+  #     api_key: none
+
+litellm_settings:
+  drop_params: true
+  num_retries: 2
+  request_timeout: 120
+
+general_settings:
+  # Virtual keys, spend tracking and budgets are stored in Postgres.
+  # Mint per-consumer keys via the UI or:
+  #   curl -s https://llm.<domain>/key/generate \
+  #     -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+  #     -d '{"key_alias":"agent-feeds","models":["claude-haiku"],"max_budget":5}'
+  store_prompts_in_spend_logs: false

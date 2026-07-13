@@ -1,0 +1,55 @@
+# Placement manifest — the one file that describes YOUR node.
+#
+# The thesis: all tiers are the same stack with different placement. This file
+# records where each concern lives. In the MVP it is documentation-as-code and a
+# contract for humans; from milestone M1 the installer-agent reads it as
+# instructions, and changing a value here becomes a migration the agent executes.
+
+apiVersion: node/v0
+kind: PlacementManifest
+
+node:
+  name: hearth-01            # your node's name; pick something you love
+  domain: example.com        # registered by YOU, at a registrar of your choice
+  operator: you@example.com
+
+placement:
+  secrets: local             # local | secrets-box | cloud-kms
+  compute: local             # local | cloud | hybrid
+  storage: local             # local | local+nas | cloud
+  inference: api             # api | local | hybrid   (hybrid = route by sensitivity)
+  front_door: direct         # direct | byo-anchor | guided-vps | none
+                             #   direct      = this box has a reachable IP; Caddy binds here
+                             #   byo-anchor  = you already run a VPS/tunnel; wire into it
+                             #   guided-vps  = installer-agent provisions a disposable anchor
+                             #   none        = Tier 5, off-grid: no public routes at all
+
+front_door:
+  # Only read when front_door != direct.
+  anchor_host: ""            # e.g. anchor.example.com (the disposable VPS)
+  tunnel: wireguard          # wireguard | cloudflared
+  note: >
+    The anchor holds zero data and zero secrets. It terminates TLS, enforces
+    deterministic policy, and forwards down a tunnel the node dials OUTBOUND.
+    Destroying and re-provisioning it must always be a 20-minute, zero-loss event.
+
+rings:
+  ring0: [llm]               # admin surfaces: operator only
+  ring1: [git, cal]          # trusted people
+  ring2: []                  # deliberately public; empty by default, add slowly
+
+services:
+  enabled: [caddy, litellm, forgejo]
+  profiles: []               # add "apps" for radicale; later: google-bridge, agents, feeds
+
+backups:
+  tool: restic
+  destination: b2            # b2 | s3 | local-nas
+  schedule: daily
+  tested_restore: never      # update this after every restore drill; be honest
+
+agents:
+  # Reserved for milestone M3. Declared now so the shape is visible.
+  runtime: none              # none | openclaw | custom
+  inference_key: virtual     # agents receive LiteLLM virtual keys only
+  approvals: human           # destructive ops require operator approval
