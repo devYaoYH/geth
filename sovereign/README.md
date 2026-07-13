@@ -77,6 +77,24 @@ arrives in later milestones — see the roadmap.
     scripts/deploy.sh       the deterministic deploy step (post-merge)
     docs/                   PHILOSOPHY, DESIGN, ROADMAP, ONBOARDING, MIRRORING, AGENT
 
+## Configuration layering — what's tracked vs. what's yours
+
+This repository is a public template: everything tracked in git is generic
+to any deployment. Everything particular to YOUR node lives in files git
+never sees:
+
+| Local-only (gitignored)   | Holds                                          |
+|---------------------------|------------------------------------------------|
+| `.env`                    | your domain, email, every secret and minted key |
+| `manifest/node.yaml`      | your placement manifest (copied from the example) |
+| `caddy/local/*.caddy`     | your extra routes/snippets, auto-imported by the Caddyfile |
+| `scripts/backup.env`      | restic repo + storage credentials              |
+
+Tracked config files reference the local layer only through `${VARS}` and
+the `import local/*.caddy` glob — if you find yourself typing your domain
+or an IP range into a tracked file, stop: it goes in `.env`
+(`EXTRA_TRUSTED_RANGES` covers unusual LAN addressing) or `caddy/local/`.
+
 ## Non-negotiables
 
 - `.env` and `scripts/backup.env` never enter git.

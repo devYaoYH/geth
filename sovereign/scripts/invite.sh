@@ -22,11 +22,13 @@ FIRST="${DISPLAY%% *}"; LAST="${DISPLAY#* }"; [[ "$LAST" == "$DISPLAY" ]] && LAS
 
 USER_ID=$("${CURL[@]}" "$AUTH_URL/api/users" -d "{
   \"username\": \"$USERNAME\", \"email\": \"$EMAIL\",
-  \"firstName\": \"$FIRST\", \"lastName\": \"$LAST\"
+  \"displayName\": \"$DISPLAY\", \"firstName\": \"$FIRST\", \"lastName\": \"$LAST\"
 }" | python3 -c 'import json,sys; r=json.load(sys.stdin); print(r.get("id") or sys.exit("create failed: %s" % r))')
 
+# NB: the endpoint requires userId in the BODY; the path id alone yields an
+# FK violation (pocket-id v1.16.0 — candidate upstream issue).
 TOKEN=$("${CURL[@]}" "$AUTH_URL/api/users/$USER_ID/one-time-access-token" \
-  -d '{"expiresAt": "'"$(date -u -v+72H +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '+72 hours' +%Y-%m-%dT%H:%M:%SZ)"'"}' \
+  -d '{"userId": "'"$USER_ID"'", "expiresAt": "'"$(date -u -v+72H +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '+72 hours' +%Y-%m-%dT%H:%M:%SZ)"'"}' \
   | python3 -c 'import json,sys; r=json.load(sys.stdin); print(r.get("token") or sys.exit("token failed: %s" % r))')
 
 LINK="$AUTH_URL/lc/$TOKEN"

@@ -36,8 +36,10 @@ services:
     environment:
       NODE_DOMAIN: ${NODE_DOMAIN}
       ACME_EMAIL: ${ACME_EMAIL}
+      # default TEST-NET-1 = matches nothing real; set real CIDRs in .env
+      EXTRA_TRUSTED_RANGES: ${EXTRA_TRUSTED_RANGES:-192.0.2.0/32}
     volumes:
-      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy:/etc/caddy:ro     # Caddyfile + untracked local/*.caddy overrides
       - caddy_data:/data
       - caddy_config:/config
     networks: [edge]

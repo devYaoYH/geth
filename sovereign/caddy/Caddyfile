@@ -11,9 +11,12 @@
 
 # --- reusable guards ---------------------------------------------------------
 
+# EXTRA_TRUSTED_RANGES (.env, optional): additional CIDRs your deployment
+# trusts — e.g. a LAN that hands out non-RFC1918 addresses. Defaults to
+# TEST-NET-1, which matches nothing real.
 (ring0) {
-	# Admin surfaces: LAN / VPN / tunnel only. Adjust ranges to your overlay.
-	@outside not remote_ip private_ranges 100.64.0.0/10
+	# Admin surfaces: LAN / VPN / tunnel only.
+	@outside not remote_ip private_ranges 100.64.0.0/10 {$EXTRA_TRUSTED_RANGES:192.0.2.0/32}
 	respond @outside "closed door" 403
 }
 
@@ -21,7 +24,7 @@
 	# Trusted-people surfaces: same network guard for the MVP; the apps behind
 	# these routes ALSO have their own logins (Forgejo, Radicale). Defense in
 	# depth until the identity-aware proxy lands.
-	@outside not remote_ip private_ranges 100.64.0.0/10
+	@outside not remote_ip private_ranges 100.64.0.0/10 {$EXTRA_TRUSTED_RANGES:192.0.2.0/32}
 	respond @outside "closed door" 403
 }
 
@@ -86,3 +89,9 @@ home.{$NODE_DOMAIN} {
 # {$NODE_DOMAIN} {
 # 	respond "hello from a sovereign node" 200
 # }
+
+# --- local-only layer -------------------------------------------------------
+# Operator-specific routes live in local/*.caddy — NOT tracked in git (this
+# repo is a public template; your node's particulars stay on your node).
+# Anything generic enough for every deployment belongs above instead.
+import local/*.caddy
