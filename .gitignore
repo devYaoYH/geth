@@ -1,1 +1,8 @@
+.env
+scripts/backup.env
+manifest/node.yaml
+caddy-local-root.crt
+caddy/local/*.caddy
+authentik-final.sql.gz
 **/.DS_Store
+config/homepage/logs/
