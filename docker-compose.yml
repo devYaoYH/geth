@@ -75,9 +75,14 @@ services:
     image: codeberg.org/forgejo/forgejo:11@sha256:946243edbab116d5bb78b73ea68af6f3d69229ba1b1ed958dd82c3481167f3e0
     container_name: forgejo
     restart: unless-stopped
+    # Entire config is declared here (env -> app.ini); the web installer never
+    # runs. State lives ONLY in the forgejo_data volume, which is in the restic
+    # include list. First-run bootstrap: ./scripts/bootstrap-forgejo.sh
     environment:
       USER_UID: "1000"
       USER_GID: "1000"
+      FORGEJO__security__INSTALL_LOCK: "true"          # config-as-code; no installer
+      FORGEJO__database__DB_TYPE: sqlite3              # single-operator scale; lives in the volume
       FORGEJO__server__DOMAIN: git.${NODE_DOMAIN}
       FORGEJO__server__ROOT_URL: https://git.${NODE_DOMAIN}/
       FORGEJO__server__SSH_PORT: "2222"

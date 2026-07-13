@@ -44,9 +44,15 @@ arrives in later milestones — see the roadmap.
        docker compose up -d
        docker compose --profile apps up -d     # include Radicale
 
-5. First-run: create your Forgejo admin at `https://git.yourdomain`, then create a
-   repo named `node-config` and push this directory to it. From now on, config
-   changes flow through git. Hand-edits on the box are considered migration debt.
+5. First-run:
+
+       ./scripts/bootstrap-forgejo.sh
+
+   One idempotent script, no web installer: operator admin (password into
+   `.env` as break-glass), `agent-dev` user with a repo-scoped token, API
+   tokens, and a private `node-config` repo with this directory's history
+   pushed. From now on, config changes flow through git. Hand-edits on the
+   box are considered migration debt.
 
 6. Identity: initialize Pocket ID at `https://auth.yourdomain/setup` — enrolling
    your passkey IS the setup; there are no passwords. Then invite trusted users

@@ -11,13 +11,10 @@ license rug-pull must never break a rebuild. Two structures, two rules:
 
 ## Prerequisites (once)
 
-1. Create your Forgejo admin at `https://git.<domain>` (first visitor gets
-   the install page; keep registration disabled).
-2. Create the `node-config` repo and push this directory to it — from then
-   on config flows through git.
-3. Mint an API token: *Settings → Applications → Generate New Token* with
-   read/write repository + organization scopes. Put it in `.env` as
-   `FORGEJO_TOKEN`.
+Run `./scripts/bootstrap-forgejo.sh`. It creates the operator admin, the
+`node-config` repo (history pushed), and writes `FORGEJO_TOKEN` and
+`AGENT_FORGEJO_TOKEN` into `.env` — no web installer, no manual token
+clicking.
 
 ## Caching an upstream (the common case)
 

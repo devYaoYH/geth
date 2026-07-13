@@ -117,5 +117,7 @@ service under `profiles: [agent]`. Steps:
 2. Mint the agent's virtual key:
    `curl https://llm.<domain>/key/generate -H "Authorization: Bearer $LITELLM_MASTER_KEY" -d '{"key_alias":"agent-dev","models":["claude-sonnet","claude-haiku"],"max_budget":25}'`
    → put the result in `.env` as `AGENT_LLM_KEY`.
-3. Create the Forgejo token (user `agent-dev`, repo scope) → `AGENT_FORGEJO_TOKEN`.
+3. `./scripts/bootstrap-forgejo.sh` (if not already run) — creates the
+   `agent-dev` user and writes `AGENT_FORGEJO_TOKEN` + `NODE_CONFIG_REPO`
+   into `.env`.
 4. `docker compose --profile agent build && docker compose run --rm agent`
