@@ -27,12 +27,10 @@ password mode to fall back to, nothing to configure wrong.
    the admin UI before inviting anyone.
 2. **Mint an API key** (admin → API Keys) and put it in `.env` as
    `POCKET_ID_API_KEY` — `scripts/invite.sh` uses it.
-3. **Federate the apps.** For each app with native OIDC, create an OIDC
-   client in Pocket ID (admin → OIDC Clients) and register Pocket ID as the
-   auth source on the app side. Forgejo first: *Site Administration →
-   Authentication Sources → Add → OAuth2/OIDC*, issuer `https://auth.<domain>`
-   (auto-discovery). Keep Forgejo's local admin password login enabled as the
-   documented break-glass.
+3. **Federate the apps:** `./scripts/sso-setup.sh` — mints OIDC clients for
+   Forgejo and the LiteLLM admin UI in Pocket ID, registers the auth source
+   in Forgejo, and grants your Pocket ID identity LiteLLM UI admin. Forgejo's
+   local admin password login stays enabled as the documented break-glass.
 4. **Non-OIDC apps** (Radicale): create an OIDC client for `oauth2-proxy`,
    fill `OAUTH2_PROXY_*` in `.env`, enable the shim —
    `docker compose --profile authshim up -d` — and put the app's Caddy route

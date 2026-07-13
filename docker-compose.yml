@@ -55,6 +55,16 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       STORE_MODEL_IN_DB: "True"
+      # Admin UI SSO via the node IdP (scripts/sso-setup.sh mints the client).
+      # API auth is unchanged: virtual keys. Only humans log in via OIDC.
+      PROXY_BASE_URL: https://llm.${NODE_DOMAIN}
+      GENERIC_CLIENT_ID: ${LITELLM_OIDC_CLIENT_ID:-}
+      GENERIC_CLIENT_SECRET: ${LITELLM_OIDC_CLIENT_SECRET:-}
+      GENERIC_AUTHORIZATION_ENDPOINT: https://auth.${NODE_DOMAIN}/authorize
+      GENERIC_TOKEN_ENDPOINT: https://auth.${NODE_DOMAIN}/api/oidc/token
+      GENERIC_USERINFO_ENDPOINT: https://auth.${NODE_DOMAIN}/api/oidc/userinfo
+      GENERIC_SCOPE: openid profile email
+      PROXY_ADMIN_ID: ${LITELLM_PROXY_ADMIN_ID:-}
     volumes:
       - ./config/litellm.yaml:/app/config.yaml:ro
     networks: [edge, litellm]

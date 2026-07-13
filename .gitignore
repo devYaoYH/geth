@@ -6,3 +6,8 @@ caddy/local/*.caddy
 authentik-final.sql.gz
 **/.DS_Store
 config/homepage/logs/
+docker-compose.override.yml
+.local-ca-bundle.pem
+*.swp
+*.swo
+*~
