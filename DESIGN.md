@@ -36,11 +36,18 @@ one), `byo-anchor` (the operator already runs a VPS or tunnel and wires into it)
 `guided-vps` (the installer-agent provisions a disposable anchor with the operator
 approving the two payment moments), and `none` (off-grid: no public routes, all
 access via LAN or private overlay). The anchor, when present, is stateless by
-construction: Caddyfile and policy are pulled from the node's Forgejo, WireGuard
-keys are re-mintable, and destroying it loses nothing. Its compromise yields an
-attacker a proxy config and nothing else. A planned refinement (M2): the node runs
-its own CoreDNS serving the deployment zone, so wildcard certificates are issued
-via ACME DNS-01 without lending registrar API tokens to anything.
+construction: config is re-derivable, WireGuard keys are re-mintable, and
+destroying it loses nothing.
+
+The anchor is an L4 SNI passthrough (Caddy's layer4 module or nginx `stream`),
+not a TLS terminator: TLS terminates ON THE NODE. The anchor reads the SNI,
+forwards the still-encrypted stream down the WireGuard tunnel the node dialed
+outbound, and never holds certificates or sees plaintext. Its trust level is
+"dumb pipe" — compromise yields traffic metadata only: no sessions, no identity,
+no content. Node-side Caddy owns ACME and TLS for all public hostnames, using
+DNS-01 via the node's own CoreDNS (M2) since the node may not be directly
+reachable for HTTP-01. Identity traffic (`auth.<domain>`) flows through the same
+passthrough; the VPS holds zero identity state.
 
 ## Containment: networks stop the wire, namespaces stop the kernel
 
@@ -61,15 +68,44 @@ a nobody that cannot read any other app's files, the vault, or the socket. The
 MVP runs on Docker Compose for ubiquity; the compose file is written to remain
 podman-compatible, and the agent runtime slot adopts rootless podman first.
 
-## Identity: one at the door, many inside
+## Identity: the node is the identity provider
 
 Humans get one identity at the door; machines get many identities inside; nothing
 is trusted for being on the network.
 
-Human plane (Rings 0/1): a single SSO enforced at the front door — forward-auth at
-Caddy — so the operator and each family member hold exactly one credential, and
-apps trust the authenticated identity the proxy asserts rather than running their
-own account systems. This is the node's "virtual identity" made literal.
+Human plane (Rings 0/1): the node runs the identity provider — Authentik,
+node-resident, behind the front door at `auth.<domain>`, with its own Postgres
+and Redis on a private network per the db-isolation pattern. Its admin surface is
+Ring 0. The chain of authority is: passkey in the user's phone secure enclave →
+node Authentik (OIDC) → everything federates. No passwords anywhere in Rings 0/1.
+Apps integrate one of two ways: (a) native OIDC (Forgejo, Miniflux, and most
+self-hostable apps) against Authentik; (b) Caddy forward-auth for apps without
+OIDC (Radicale) — the proxy asserts the authenticated identity and the app
+trusts it. Family access needs no overlay client: public front door + passkey
+covers Ring 1.
+
+"Node-resident" is a placement statement, not "on-prem": in Tier 1
+(`compute: cloud`, e.g. a GCP VM) the IdP runs on that VM — same stack, same
+manifest. The root of trust is the phone passkey regardless of placement, and a
+migration cloud→mini carries the identity plane as ordinary volumes: same
+domain, same users, no re-enrollment.
+
+There is no third-party in the identity chain. A private overlay (Tailscale et
+al.) is at most an optional operator convenience, never a dependency; if one is
+ever added it must be Headscale using Authentik as its OIDC source, because no
+third-party service may be an identity root.
+
+The credential taxonomy, in full:
+
+| Class          | Examples                                              | Held by                | Humans see it?     |
+|----------------|-------------------------------------------------------|------------------------|--------------------|
+| Daily / human  | one passkey per person                                | phone secure enclave   | it *is* them       |
+| Machine-held   | LiteLLM virtual keys, per-caller service tokens, deploy keys | vault, injected as secrets | never          |
+| Cold upstream  | Google OAuth (gog bridge), registrar, VPS, backup storage, model providers | vault; touched at setup/billing/token-refresh only | rarely |
+
+Cold-upstream accounts are operated day-to-day by agents via scoped API tokens.
+The rule that binds the taxonomy: no upstream account may be an identity ROOT —
+upstream holds delegated tokens, never the reverse.
 
 Machine plane (services and agents): zero-trust inside the box. Every internal
 caller — an app calling another app, an agent calling anything — holds a distinct,
@@ -158,15 +194,39 @@ contract may occupy the slot — OpenClaw included, which turns "run the viral
 agent without becoming a breach statistic" into this project's beachhead use
 case.
 
-## Backup and disaster recovery
+## Disaster recovery: the bootstrap chain and the Recovery Kit
 
 The node is reproducible from two things: the `node-config` repository and the
 restic snapshots (whose inclusion list is generated from app manifests' `backup`
-fields). A restore drill is part of the definition of done for every milestone,
-and the manifest records the date of the last successful drill, truthfully.
-Migration between placements (laptop to mini to cloud and back) is the same
-procedure as disaster recovery, which means every migration doubles as a tested
-backup.
+fields). Since the snapshots contain Forgejo — and therefore `node-config` —
+the node rebuilds from snapshots plus the credentials to reach them. Exactly
+three things must survive the box; place them deliberately:
+
+1. **restic passphrase + repo location** → phone secure enclave AND a printed
+   card;
+2. **passkeys** (private halves) → already phone-resident; the restored
+   Authentik database holds the public halves, so every login works immediately
+   post-restore;
+3. **domain + anchor** → survive independently of the box; the anchor serves a
+   "node restoring" page and waits for a new box to dial in.
+
+The recovery flow is a product requirement written for a non-technical
+operator: new box → scan QR → phone releases the recovery bundle (repo location
++ keys) → agent restores volumes, re-mints tunnel keys, dials the anchor →
+done. The human does three things: plug in, scan, approve. Maximum loss is one
+backup interval; the mail-mirror and calendar volumes get hourly snapshots,
+everything else daily.
+
+The Recovery Kit ships in the box: a printed card carrying the restic
+passphrase and recovery codes as QR. The card alone MUST be sufficient — it
+covers the case where phone and box are lost together. A family-quorum reset
+covers the operator-incapacitated case.
+
+The ops agent runs a quarterly automated restore-to-staging drill and surfaces
+a "backups verified <date>" status; the manifest's `backups.tested_restore`
+field is updated automatically from drill results, truthfully. Migration
+between placements (laptop to mini to cloud and back) is the same procedure as
+disaster recovery, which means every migration doubles as a tested backup.
 
 ## Decision log
 
@@ -183,6 +243,10 @@ Rootless podman as execution target over root-daemon Docker: per-app user
 namespaces contain container escape, and there is no root daemon to own.
 Per-caller tokens over mTLS-everywhere: boring, legible, individually revocable;
 cryptographic caller identity can arrive later without redesign.
+Authentik over Authelia/Pocket ID: a full OIDC provider with passkeys and user
+lifecycle for Ring 1, at the cost of a heavier footprint; revisit if the
+month-six tax proves real. No third-party identity roots — ever. The anchor is
+an L4 passthrough: rented hardware gets metadata, never plaintext.
 
 Two principles govern future choices. Agent legibility: the sysadmin is a language
 model, so mainstream formats (compose, Caddyfiles, systemd, TOML/YAML) are a

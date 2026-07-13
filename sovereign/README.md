@@ -12,12 +12,15 @@ domain and are comfortable with Docker. See `docs/PHILOSOPHY.md` for why this ex
 | Service   | Role                                        | Ring    |
 |-----------|---------------------------------------------|---------|
 | Caddy     | Reverse proxy, TLS, the only exposed thing  | door    |
+| Authentik | Identity provider — passkeys, OIDC, forward-auth | door / ring 0 admin |
 | LiteLLM   | LLM gateway — virtual keys, budgets, audit  | ring 0  |
-| Postgres  | LiteLLM's key/spend database                | ring 0  |
-| Forgejo   | Git platform, config-as-code source of truth| ring 1  |
+| Postgres  | LiteLLM's + Authentik's databases (isolated)| ring 0  |
+| Forgejo   | Git platform, config-as-code source of truth, upstream mirror cache | ring 1 |
+| Homepage  | Trusted-people dashboard, health checks, config in git | ring 1 |
 | Radicale  | CalDAV/CardDAV calendar + contacts (optional profile) | ring 1 |
+| agent     | Claude Code in a jail — the resident dev-agent (optional profile, see docs/AGENT.md) | ring 0 session |
 
-Everything else (gog/gws Google bridge, feeds, photos, the agent runtime slot)
+Everything else (gog/gws Google bridge, feeds, photos, more agent tenants)
 arrives in later milestones — see the roadmap.
 
 ## Quickstart
@@ -28,7 +31,8 @@ arrives in later milestones — see the roadmap.
        # generate strong values:  openssl rand -hex 32
 
 2. Point DNS at this box (or your front-door anchor):
-   `git.yourdomain`, `llm.yourdomain`, `cal.yourdomain` → your public IP / VPS.
+   `git.yourdomain`, `llm.yourdomain`, `cal.yourdomain`, `auth.yourdomain`,
+   `home.yourdomain` → your public IP / VPS.
    No public exposure wanted? Leave DNS unset and use the `lan` Caddyfile variant.
 
 3. Review `manifest/node.example.yaml` and copy it to `manifest/node.yaml`.
@@ -44,20 +48,34 @@ arrives in later milestones — see the roadmap.
    repo named `node-config` and push this directory to it. From now on, config
    changes flow through git. Hand-edits on the box are considered migration debt.
 
-6. Backups (not optional — this box is your identity):
+6. Identity: initialize Authentik at `https://auth.yourdomain/if/flow/initial-setup/`,
+   enroll a passkey for the admin immediately, then follow `docs/ONBOARDING.md`
+   to invite trusted users. Passkeys only — no passwords in rings 0/1.
+
+7. Backups (not optional — this box is your identity):
 
        cp scripts/backup.env.example scripts/backup.env   # fill in restic/B2 creds
        ./scripts/backup.sh                                 # then cron it daily
 
+8. Optional but the point of it all — the resident dev-agent (docs/AGENT.md):
+
+       docker compose --profile agent build
+       docker compose run --rm agent
+
 ## Layout
 
-    docker-compose.yml      the stack
+    docker-compose.yml      the stack — every image pinned by digest
     .env.example            secrets template (never commit .env)
     caddy/Caddyfile         routes, annotated by trust ring
     config/litellm.yaml     model list + router settings
+    config/homepage/        trusted-people dashboard (config-as-code)
     manifest/               placement manifest + app manifest v0 (the contracts)
+    agent/                  the dev-agent jail (Dockerfile + operating rules)
     scripts/backup.sh       restic volume backup
-    docs/                   PHILOSOPHY, DESIGN, ROADMAP
+    scripts/mirror.sh       cache an upstream repo in Forgejo (docs/MIRRORING.md)
+    scripts/pin-images.sh   re-pin compose images to current digests
+    scripts/deploy.sh       the deterministic deploy step (post-merge)
+    docs/                   PHILOSOPHY, DESIGN, ROADMAP, ONBOARDING, MIRRORING, AGENT
 
 ## Non-negotiables
 

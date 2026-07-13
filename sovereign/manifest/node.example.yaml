@@ -33,20 +33,30 @@ front_door:
     deterministic policy, and forwards down a tunnel the node dials OUTBOUND.
     Destroying and re-provisioning it must always be a 20-minute, zero-loss event.
 
+identity:
+  # The node IS the identity provider. "Node-resident" follows compute: in
+  # Tier 1 (compute: cloud) the IdP runs on that VM — same stack, same manifest.
+  # Root of trust is the phone passkey regardless of placement.
+  provider: authentik        # node-resident IdP at auth.<domain>; admin = ring 0
+  human_auth: passkeys       # no passwords anywhere in rings 0/1
+  overlay: none              # never a dependency; if ever added: headscale with
+                             # Authentik as its OIDC source (no third-party
+                             # identity roots)
+
 rings:
-  ring0: [llm]               # admin surfaces: operator only
-  ring1: [git, cal]          # trusted people
-  ring2: []                  # deliberately public; empty by default, add slowly
+  ring0: [llm, auth-admin]   # admin surfaces: operator only
+  ring1: [git, cal, home]    # trusted people
+  ring2: [auth]              # deliberately public; the door itself, add slowly
 
 services:
-  enabled: [caddy, litellm, forgejo]
+  enabled: [caddy, litellm, forgejo, authentik, homepage]
   profiles: []               # add "apps" for radicale; later: google-bridge, agents, feeds
 
 backups:
   tool: restic
   destination: b2            # b2 | s3 | local-nas
-  schedule: daily
-  tested_restore: never      # update this after every restore drill; be honest
+  schedule: daily            # hourly for mail-mirror + calendar volumes once they exist
+  tested_restore: never      # updated automatically from quarterly restore drills; be honest
 
 agents:
   # Reserved for milestone M3. Declared now so the shape is visible.

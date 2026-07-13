@@ -31,16 +31,20 @@ hands the human three clicks — account signups and payments stay human by desi
 ## M2 — The front door grows up, and changes get a pipeline
 
 The guided-VPS anchor becomes a first-class placement: stateless cloud-init,
-outbound WireGuard from the node, config pulled from Forgejo, node-run CoreDNS
-issuing wildcard certs via DNS-01 so registrar tokens are never lent out. Coarse
-IP guards give way to the identity layer: forward-auth SSO for humans at the door,
-per-caller scoped tokens for machines inside, deny by default. The policy loop
-lands (agent-drafted rule commits, operator approval, deterministic enforcement),
-and so does the change pipeline: staging project, manifest-declared tests,
-promotion refused on red, deploys pinned by digest and git tag. Exit criteria:
-destroying and re-provisioning the anchor in under twenty minutes with zero data
-loss, demonstrated on video; one app update flowing branch → staging → tests → PR
-→ prod with no hand-edits.
+outbound WireGuard from the node, an L4 SNI passthrough so TLS terminates on the
+node and the VPS never sees plaintext, node-run CoreDNS issuing wildcard certs
+via DNS-01 so registrar tokens are never lent out. The identity layer lands here,
+fully specified: Authentik as the node-resident IdP, forward-auth at Caddy for
+non-OIDC apps, passkeys-only for Rings 0/1, per-caller scoped tokens for machines
+inside, deny by default. The policy loop lands (agent-drafted rule commits,
+operator approval, deterministic enforcement), and so does the change pipeline:
+staging project, manifest-declared tests, promotion refused on red, deploys
+pinned by digest and git tag. Exit criteria: destroying and re-provisioning the
+anchor in under twenty minutes with zero data loss, demonstrated on video; the
+anchor rebuilt as L4 passthrough, demonstrated; one app update flowing branch →
+staging → tests → PR → prod with no hand-edits; one full recovery drill — fresh
+VM, restore from snapshots via the QR/bundle flow, family passkey logins working,
+in thirty minutes or less.
 
 ## M3 — The Google bridge and the agent slot
 
@@ -59,7 +63,8 @@ escalate.
 
 Family accounts across services via the door's SSO, calendar ACLs (edit for
 family, busy-only feed public), the QR onboarding flow that configures a phone in
-one scan, and shared photos or files as the anchor app. Exit criteria: one
+one scan — passkey enrollment in Authentik plus app config; no overlay client, no
+passwords — and shared photos or files as the anchor app. Exit criteria: one
 non-technical household member uses the node daily for a month without asking the
 operator for help. This milestone makes the operator a service provider; the UPS
 and the monitoring agent stop being optional here.

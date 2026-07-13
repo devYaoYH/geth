@@ -46,6 +46,31 @@ cal.{$NODE_DOMAIN} {
 	reverse_proxy radicale:5232
 }
 
+# Ring 2 (by function) — the identity provider IS the public door: family logs
+# in from anywhere with a passkey, so the login flow cannot sit behind an IP
+# guard. Authentik's admin interface is protected by its own auth; treat the
+# admin user as ring 0 and enroll it with a passkey immediately.
+auth.{$NODE_DOMAIN} {
+	reverse_proxy authentik:9000
+}
+
+# Ring 1 — trusted-people dashboard (status + links; config lives in git)
+home.{$NODE_DOMAIN} {
+	import ring1
+	reverse_proxy homepage:3000
+}
+
+# --- forward-auth template ------------------------------------------------
+# For apps with no native OIDC (e.g. Radicale), route through Authentik's
+# embedded outpost once a Proxy Provider is configured for the app:
+#
+# (authed) {
+# 	forward_auth authentik:9000 {
+# 		uri /outpost.goauthentik.io/auth/caddy
+# 		copy_headers X-Authentik-Username X-Authentik-Groups X-Authentik-Email
+# 	}
+# }
+
 # Ring 2 — the deliberately public surface. Empty by design in the MVP.
 # When you're ready: a busy-only calendar feed, a blog, a booking page.
 # Every line added here is attack surface; add slowly, remove eagerly.

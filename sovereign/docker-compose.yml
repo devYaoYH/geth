@@ -9,6 +9,7 @@ name: sovereign-node
 networks:
   edge:
   litellm:
+  authentik:   # Authentik <-> its Postgres/Redis. Nothing else can reach them.
 
 volumes:
   caddy_data:
@@ -16,10 +17,15 @@ volumes:
   litellm_db:
   forgejo_data:
   radicale_data:
+  authentik_db:
+  authentik_redis:
+  authentik_media:
+  authentik_templates:
+  agent_workspace:
 
 services:
   caddy:
-    image: caddy:2-alpine
+    image: caddy:2-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
     container_name: caddy
     restart: unless-stopped
     ports:
@@ -36,8 +42,9 @@ services:
     networks: [edge]
 
   litellm:
-    # Pin a specific release tag before you rely on this in anger.
-    image: ghcr.io/berriai/litellm:main-stable
+    # Digest-pinned (as is every image here). To update: scripts/pin-images.sh,
+    # review the diff, commit. Rollback = git revert + docker compose up -d.
+    image: ghcr.io/berriai/litellm:main-stable@sha256:9ef6f45bc0104940571765e610c52a1d761b5ec85efcd193795281086ee61277
     container_name: litellm
     restart: unless-stopped
     depends_on:
@@ -55,7 +62,7 @@ services:
     networks: [edge, litellm]
 
   litellm-db:
-    image: postgres:16-alpine
+    image: postgres:16-alpine@sha256:16bc17c64a573ef34162af9298258d1aec548232985b33ed7b1eac33ba35c229
     container_name: litellm-db
     restart: unless-stopped
     environment:
@@ -67,8 +74,7 @@ services:
     networks: [litellm]
 
   forgejo:
-    # Check https://forgejo.org for the current stable tag and pin it.
-    image: codeberg.org/forgejo/forgejo:11
+    image: codeberg.org/forgejo/forgejo:11@sha256:946243edbab116d5bb78b73ea68af6f3d69229ba1b1ed958dd82c3481167f3e0
     container_name: forgejo
     restart: unless-stopped
     environment:
@@ -87,11 +93,118 @@ services:
 
   radicale:
     profiles: [apps]
-    image: tomsquest/docker-radicale:latest
+    image: tomsquest/docker-radicale:latest@sha256:ce7264ac5bd7ee7f5903e2ce1398a5df25ae3dda7e017487f510a761827144a5
     container_name: radicale
     restart: unless-stopped
     volumes:
       - radicale_data:/data
+    networks: [edge]
+
+  # --- identity plane -------------------------------------------------------
+  # The node IS the identity provider: passkey -> Authentik (OIDC) -> everything
+  # federates. Admin surface is ring 0; the login flow itself is the public door.
+
+  authentik:
+    image: ghcr.io/goauthentik/server:2025.6@sha256:acde6a1fc963301fe27f7e86facb9aefbc68eb523210bcab5679a899e6bf72d5
+    container_name: authentik
+    restart: unless-stopped
+    command: server
+    depends_on:
+      - authentik-db
+      - authentik-redis
+    environment:
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
+      AUTHENTIK_REDIS__HOST: authentik-redis
+      AUTHENTIK_POSTGRESQL__HOST: authentik-db
+      AUTHENTIK_POSTGRESQL__USER: authentik
+      AUTHENTIK_POSTGRESQL__NAME: authentik
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_DB_PASSWORD}
+      AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
+    volumes:
+      - authentik_media:/media
+      - authentik_templates:/templates
+    networks: [edge, authentik]
+
+  authentik-worker:
+    image: ghcr.io/goauthentik/server:2025.6@sha256:acde6a1fc963301fe27f7e86facb9aefbc68eb523210bcab5679a899e6bf72d5
+    container_name: authentik-worker
+    restart: unless-stopped
+    command: worker
+    depends_on:
+      - authentik-db
+      - authentik-redis
+    environment:
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
+      AUTHENTIK_REDIS__HOST: authentik-redis
+      AUTHENTIK_POSTGRESQL__HOST: authentik-db
+      AUTHENTIK_POSTGRESQL__USER: authentik
+      AUTHENTIK_POSTGRESQL__NAME: authentik
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_DB_PASSWORD}
+      AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
+    volumes:
+      - authentik_media:/media
+      - authentik_templates:/templates
+    networks: [authentik]
+
+  authentik-db:
+    image: postgres:16-alpine@sha256:16bc17c64a573ef34162af9298258d1aec548232985b33ed7b1eac33ba35c229
+    container_name: authentik-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: authentik
+      POSTGRES_USER: authentik
+      POSTGRES_PASSWORD: ${AUTHENTIK_DB_PASSWORD}
+    volumes:
+      - authentik_db:/var/lib/postgresql/data
+    networks: [authentik]
+
+  authentik-redis:
+    image: redis:7-alpine@sha256:7aec734b2bb298a1d769fd8729f13b8514a41bf90fcdd1f38ec52267fbaa8ee6
+    container_name: authentik-redis
+    restart: unless-stopped
+    command: --save 60 1 --loglevel warning
+    volumes:
+      - authentik_redis:/data
+    networks: [authentik]
+
+  # --- trusted-people dashboard ----------------------------------------------
+  # Status/health only for now; configured entirely by YAML in git
+  # (config/homepage/). Later: agent-exposed app frontends get their own routes.
+
+  homepage:
+    image: ghcr.io/gethomepage/homepage:latest@sha256:a0b71c8e757298d02560186bab9fbe3fc2d375c523a62cc1019177b37e48aa28
+    container_name: homepage
+    restart: unless-stopped
+    environment:
+      HOMEPAGE_ALLOWED_HOSTS: home.${NODE_DOMAIN}
+      HOMEPAGE_VAR_NODE_DOMAIN: ${NODE_DOMAIN}
+    volumes:
+      - ./config/homepage:/app/config
+    networks: [edge]
+
+  # --- the agent runtime slot, first tenant -----------------------------------
+  # Claude Code in a jail (docs/AGENT.md). Interactive:
+  #   docker compose --profile agent build
+  #   docker compose run --rm agent
+  # Holds: a LiteLLM virtual key + a scoped Forgejo token. Does not hold:
+  # docker socket, secrets, host mounts, database networks, deploy access.
+
+  agent:
+    profiles: [agent]
+    build: ./agent
+    image: sovereign-node/agent:local
+    container_name: agent
+    stdin_open: true
+    tty: true
+    environment:
+      ANTHROPIC_BASE_URL: http://litellm:4000
+      ANTHROPIC_AUTH_TOKEN: ${AGENT_LLM_KEY:-}       # virtual key — never a provider key
+      ANTHROPIC_MODEL: claude-sonnet                 # LiteLLM alias
+      ANTHROPIC_SMALL_FAST_MODEL: claude-haiku
+      AGENT_FORGEJO_TOKEN: ${AGENT_FORGEJO_TOKEN:-}  # scope: node-config + apps/* only
+      NODE_CONFIG_REPO: ${NODE_CONFIG_REPO:-}
+    volumes:
+      - agent_workspace:/workspace
     networks: [edge]
 
   # ---------------------------------------------------------------------------
@@ -99,7 +212,7 @@ services:
   #
   #   gog-bridge   — gog/gws MCP container: mail/calendar/drive via your Google
   #                  account, read-only by default, --gmail-no-send at the door.
-  #   agents       — the agent runtime slot: jailed, edge-network only, LiteLLM
-  #                  virtual key injected, no docker socket, no vault access.
   #   miniflux     — pull-based feed aggregator (your algorithm-free timeline).
+  #   memos        — Google-Keep-style notes; arrives as the agent's first
+  #                  worked example (docs/AGENT.md).
   # ---------------------------------------------------------------------------

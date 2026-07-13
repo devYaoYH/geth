@@ -1,0 +1,13 @@
+# Homepage settings — config-as-code; edit here, commit, redeploy.
+title: sovereign-node
+theme: dark
+color: slate
+headerStyle: clean
+statusStyle: dot
+layout:
+  Node:
+    style: row
+    columns: 3
+  Coming up:
+    style: row
+    columns: 3
