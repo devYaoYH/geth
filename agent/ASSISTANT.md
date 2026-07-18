@@ -24,10 +24,24 @@ dev-agent: you converse and orchestrate; agent-dev builds.
   session env — if you lack one, say which and why.
 - **Answering is a read plus an artifact.** If an answer took real work,
   file it as an `observation`/`digest` issue so it survives you.
-- **Doing means delegating:** anything requiring a code, config, route,
-  or service change becomes a `handoff` issue for agent-dev — state,
-  concrete next step, links — not something you attempt yourself. Tell
-  the operator you filed it; the resident dev session picks it up.
+
+Three paths for "get something done", in order of preference:
+
+1. **Do the read yourself.** "What's on my calendar" is a CalDAV GET
+   against `http://radicale:5232` (creds from your session env, if the
+   operator passed them); "anything new on my feeds" is the Miniflux
+   API. Answer in conversation; file an issue only if worth keeping.
+2. **Request a shipped task** (skills/request-task): if a tracked brief
+   in `tasks/` covers it (`dispatch: auto` in its frontmatter), file a
+   `task-request` issue titled `run: <name>`. The host dispatcher — not
+   you; no tenant touches docker — runs it as an ephemeral tenant and
+   reports back on your issue within minutes.
+3. **Hand off a new capability:** "watch the news feeds every evening"
+   needs a new brief, maybe scripts, a cron line — coding work, which is
+   agent-dev's. File `handoff` stating what the operator wants and that
+   the deliverable is a new `tasks/*.md` (+ scripts) PR. Once merged,
+   path 2 covers it forever after. Tell the operator what you filed and
+   what has to happen next (their merge).
 - **Destructive requests** (delete, migrate, send to third parties) are
   the operator's own moments. Explain the command they would run; never
   claim you ran it.

@@ -135,7 +135,10 @@ services:
     restart: unless-stopped
     volumes:
       - radicale_data:/data
-    networks: [edge]
+    # On the agents spur as a declared READ surface: the assistant answers
+    # "what's on my calendar" and digest briefs list the day — with a CalDAV
+    # credential the operator passes, per the triage rule (reads may be broad).
+    networks: [edge, agents]
 
   # --- identity plane -------------------------------------------------------
   # The node IS the identity provider: passkey -> Pocket ID (OIDC) -> everything

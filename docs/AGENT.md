@@ -114,6 +114,9 @@ The first real task, exercising every mechanism above:
   (`tasks/morning-digest.md`, cron it); the injection drill
   (`scripts/drill-injection.sh`) proves the containment claim on demand.
   Tenants coordinate through Forgejo issues, never through shared memory.
+  Agents can *request* ephemeral runs without touching docker: a
+  `task-request` issue naming a tracked `dispatch: auto` brief, executed
+  by the host-side cron `scripts/task-dispatcher.sh` (skills/request-task).
 - **Conversational (the front door):** `docker compose run --rm assistant`
   — a second resident tenant with a deliberately weaker hand
   (agent/ASSISTANT.md): read on node-config, write on issues, its own

@@ -104,6 +104,7 @@ memos, and more tenants arrive in later milestones — see the roadmap.
     scripts/promote.sh      staging -> tests -> prod; refuses promotion on red
     scripts/deploy.sh       the deterministic deploy step (promote's last move)
     scripts/run-task.sh     ephemeral agent tenancy: per-run key, one task, teardown
+    scripts/task-dispatcher.sh  cron: executes agents' task-request issues (tracked briefs only)
     scripts/drill-injection.sh  prove a prompt-injection cannot escalate
     docs/                   PHILOSOPHY, DESIGN, ROADMAP, ONBOARDING, MIRRORING, AGENT
 

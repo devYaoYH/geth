@@ -27,7 +27,7 @@ BRIEF="${1:?usage: run-task.sh <tasks/brief.md> [--keep-key]}"
 KEEP_KEY="${2:-}"    # --keep-key: drill mode — let expiry, not revocation, kill it
 [[ -f "$BRIEF" ]] || { echo "no such brief: $BRIEF"; exit 1; }
 
-front() { awk -v k="$2" 'NR>1 && /^---$/{exit} $1==k":"{sub(/^[^:]*: */,""); print}' "$1"; }
+front() { awk -v k="$2" 'NR>1 && /^---$/{exit} $1==k":"{sub(/^[^:]*: */,""); sub(/[[:space:]]*#.*$/,""); sub(/[[:space:]]+$/,""); print}' "$1"; }
 TASK=$(front "$BRIEF" task);         TASK=${TASK:-$(basename "$BRIEF" .md)}
 MODEL=$(front "$BRIEF" model);       MODEL=${MODEL:-${AGENT_FAST_MODEL:-claude-haiku}}
 BUDGET=$(front "$BRIEF" budget_usd); BUDGET=${BUDGET:-0.50}

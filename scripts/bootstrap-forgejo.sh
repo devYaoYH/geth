@@ -109,7 +109,8 @@ AAPI() { /usr/bin/curl -sk --resolve "git.localhost:443:127.0.0.1" \
 for LABEL in '{"name":"handoff","color":"#1f6feb","description":"for the next tenant: state + next step"}' \
              '{"name":"blocked","color":"#d73a4a","description":"needs the operator: scope, secret, or merge"}' \
              '{"name":"digest","color":"#0e8a16","description":"ambient task output (morning digest etc.)"}' \
-             '{"name":"observation","color":"#a2eeef","description":"something noticed, no action required yet"}'; do
+             '{"name":"observation","color":"#a2eeef","description":"something noticed, no action required yet"}' \
+             '{"name":"task-request","color":"#fbca04","description":"run a tracked brief: title run: <name>; task-dispatcher.sh executes"}'; do
   AAPI -X POST "https://git.localhost/api/v1/repos/$ADMIN/coordination/labels" -d "$LABEL" >/dev/null || true
 done
 saveenv COORDINATION_REPO "$ADMIN/coordination"

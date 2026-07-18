@@ -36,8 +36,13 @@ it — comment on that issue rather than opening a duplicate.
 
 ## Filing a note
 
+The create API takes label IDs (integers), not names — look the ID up
+first (they're stable per repo, so once per session is fine):
+
+    LID=$(curl -s -H "$AUTH" "$API/labels" \
+      | python3 -c 'import json,sys; print([l["id"] for l in json.load(sys.stdin) if l["name"]=="handoff"][0])')
     curl -s -H "$AUTH" -H 'Content-Type: application/json' -X POST "$API/issues" \
-      -d '{"title":"<imperative, specific>","body":"<see shapes below>","labels":[<label ids or names>]}'
+      -d "{\"title\":\"<imperative, specific>\",\"body\":\"<see shapes below>\",\"labels\":[$LID]}"
 
 Note shapes — keep them mechanical so the next reader (agent or human)
 can act without asking questions:

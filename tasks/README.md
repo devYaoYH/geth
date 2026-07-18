@@ -15,8 +15,17 @@ Markdown with a small frontmatter block read by `scripts/run-task.sh`:
     budget_usd: 0.50              # hard ceiling on the per-run virtual key
     expires: 2h                   # key self-destructs even if teardown fails
     env: [MINIFLUX_TASK_TOKEN]    # .env names passed through — the brief's
-    ---                           #   `needs`: declare nothing, receive nothing
+    dispatch: auto                #   `needs`: declare nothing, receive nothing
+    ---                           # dispatch: auto = agents may request runs
     <the prompt body: what to do, where to file the artifact>
+
+`dispatch: auto` opts a brief into agent-requested execution: an agent
+files a `task-request` issue titled `run: <name>`, and the host-side
+cron (`scripts/task-dispatcher.sh`) validates and runs it. The flag
+ships through PR review like everything else — a brief without it can
+only be run by the operator's own hand. The dispatcher never reads the
+issue body: the brief is the entire prompt, so a request can only ever
+trigger reviewed work, never inject new work.
 
 ## Rules for writing briefs
 

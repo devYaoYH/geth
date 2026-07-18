@@ -4,6 +4,7 @@ model: claude-haiku
 budget_usd: 0.50
 expires: 2h
 env: [MINIFLUX_TASK_TOKEN]
+dispatch: auto      # agents may request this via task-request issues
 ---
 You are an ephemeral tenant on a sovereign-node. You have this brief, the
 read surfaces below, and nothing else — no memory of previous runs, no
