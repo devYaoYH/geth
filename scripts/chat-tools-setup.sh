@@ -29,8 +29,7 @@ saveenv() {  # saveenv <key> <value> [file=.env]
   if grep -q "^$1=" "$f"; then
     sed -i "s|^$1=.*|$1=$2|" "$f"
   else
-    printf '%s=%s
-' "$1" "$2" >> "$f"
+    printf '%s=%s\n' "$1" "$2" >> "$f"
   fi
 }
 
@@ -52,7 +51,7 @@ if docker ps --format '{{.Names}}' | grep -qx radicale; then
   HTPASS=$(openssl passwd -apr1 "$RAD_PASS")
   docker exec radicale sh -c 'mkdir -p /data/collections && touch /data/users /data/rights'
   # Ensure user entry exists/updated (replace or append)
-  docker exec radicale sh -lc "grep -v '^$RAD_USER:' /data/users > /data/users.new || true && echo '$RAD_USER:$HTPASS' >> /data/users.new && mv /data/users.new /data/users"
+  docker exec radicale sh -lc "grep -v '^${RAD_USER}:' /data/users > /data/users.new || true; echo '${RAD_USER}:${HTPASS}' >> /data/users.new; mv /data/users.new /data/users"
   # Minimal rights: owner full access (login -> own collections)
   if ! docker exec radicale sh -c "grep -q '\[owner-write\]' /data/rights" >/dev/null 2>&1; then
     docker exec radicale sh -c 'cat > /data/rights <<EOF
