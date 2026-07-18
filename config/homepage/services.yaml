@@ -32,8 +32,10 @@
 - Tenants:
     - agent-dev (resident):
         description: Claude Code jail · $25/mo · writes via PR only · agents net, no egress
-    - helper-coder:
-        description: external coding helper · deepseek-flash only · $10 budget
+    - assistant (front door):
+        description: conversational · reads + issues only, no PR path · hands off to agent-dev
+    - ephemeral tasks:
+        description: run-task.sh · per-run key, budget + expiry · artifact = a coordination issue
     - operator (you):
         description: ring 0 — merges, deploys, mints; the human in every loop
 

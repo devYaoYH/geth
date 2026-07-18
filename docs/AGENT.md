@@ -114,8 +114,15 @@ The first real task, exercising every mechanism above:
   (`tasks/morning-digest.md`, cron it); the injection drill
   (`scripts/drill-injection.sh`) proves the containment claim on demand.
   Tenants coordinate through Forgejo issues, never through shared memory.
-- **Later:** a chat bridge behind the node IdP (Pocket ID), still on
-  virtual keys and read-only surfaces.
+- **Conversational (the front door):** `docker compose run --rm assistant`
+  — a second resident tenant with a deliberately weaker hand
+  (agent/ASSISTANT.md): read on node-config, write on issues, its own
+  budgeted key, no PR path. You ask it for things; work needing changes
+  becomes a `handoff` issue the dev-agent picks up. Division of labor:
+  the assistant converses, agent-dev builds, ephemeral tenants run
+  errands — all meeting in the coordination repo.
+- **Later:** a chat bridge behind the node IdP (Pocket ID) putting the
+  assistant on your phone, still on virtual keys and read-only surfaces.
 - **Never:** an LLM in the request-authorization path. Unauthenticated
   internet traffic must not be able to talk its way in.
 

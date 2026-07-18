@@ -22,6 +22,7 @@ domain and are comfortable with Docker. See `docs/PHILOSOPHY.md` for why this ex
 | Miniflux  | Pull-based feeds, the algorithm-free timeline (profile `feeds`) | ring 1 |
 | gog-bridge| Google mail/cal/drive as read-only MCP + local mirror (profile `bridge`, agents spur only) | ring 0 |
 | agent     | Claude Code in a jail — the resident dev-agent (profile `agent`, see docs/AGENT.md) | ring 0 session |
+| assistant | The front-door helper you converse with — reads + issues only, no PR path (profile `assistant`) | ring 0 session |
 
 Ephemeral agent tenants (one container, one task, one budgeted key) run via
 `scripts/run-task.sh` from briefs in `tasks/` — see docs/AGENT.md. Photos,

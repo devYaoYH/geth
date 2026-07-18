@@ -3,12 +3,14 @@
 set -eu
 
 if [ -n "${AGENT_FORGEJO_TOKEN:-}" ]; then
+  # Which tenant identity this session runs as (agent-dev, assistant, ...)
+  GIT_USER="${AGENT_GIT_USER:-agent-dev}"
   git config --global credential.helper store
   # forgejo:3000 is HTTP inside the agents network; TLS is Caddy's job at the door
-  printf 'http://agent-dev:%s@forgejo:3000\n' "$AGENT_FORGEJO_TOKEN" \
+  printf 'http://%s:%s@forgejo:3000\n' "$GIT_USER" "$AGENT_FORGEJO_TOKEN" \
     > "$HOME/.git-credentials"
-  git config --global user.name  "agent-dev"
-  git config --global user.email "agent-dev@node.invalid"
+  git config --global user.name  "$GIT_USER"
+  git config --global user.email "$GIT_USER@node.invalid"
 
   if [ ! -d /workspace/node-config/.git ]; then
     echo "[jail] cloning node-config from Forgejo..."

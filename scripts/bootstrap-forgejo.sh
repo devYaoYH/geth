@@ -7,6 +7,7 @@
 #   3. operator API token                (-> FORGEJO_TOKEN in .env, for mirror.sh)
 #   4. node-config repo, current git history pushed
 #   5. coordination repo — the agents' shared notebook (issues + board)
+#   6. assistant user + weaker token   (-> ASSISTANT_FORGEJO_TOKEN in .env)
 #
 # Re-running skips anything that already exists. Humans run this once;
 # everything after flows through git and the agents.
@@ -23,7 +24,7 @@ saveenv() {  # saveenv KEY VALUE — insert or replace in .env
   grep -q "^$1=" .env && sed -i '' "s|^$1=.*|$1=$2|" .env || printf '%s=%s\n' "$1" "$2" >> .env
 }
 
-echo "== 1/5 operator admin =="
+echo "== 1/6 operator admin =="
 if FJ admin user list --admin | grep -qw "$ADMIN"; then
   echo "   admin '$ADMIN' exists — skip"
 else
@@ -35,7 +36,7 @@ else
   echo "   created '$ADMIN' (password in .env — break-glass; day-to-day auth goes OIDC later)"
 fi
 
-echo "== 2/5 operator API token =="
+echo "== 2/6 operator API token =="
 if [[ -z "${FORGEJO_TOKEN:-}" ]]; then
   FORGEJO_TOKEN=$(FJ admin user generate-access-token --username "$ADMIN" \
       --token-name node-ops --scopes write:repository,write:organization,write:user --raw)
@@ -45,7 +46,7 @@ else
   echo "   FORGEJO_TOKEN already set — skip"
 fi
 
-echo "== 3/5 agent-dev user + scoped token =="
+echo "== 3/6 agent-dev user + scoped token =="
 # Scopes: write:repository (clone/branch/push/PR) + write:issue (the M3
 # coordination surface — agents track work and leave notes as issues/boards).
 # Widening this line IS the jail-widening moment: it ships as a reviewed diff.
@@ -67,7 +68,7 @@ else
   echo "   AGENT_FORGEJO_TOKEN already set — skip"
 fi
 
-echo "== 4/5 node-config repo =="
+echo "== 4/6 node-config repo =="
 if API "https://git.localhost/api/v1/repos/$ADMIN/node-config" | grep -q '"full_name"'; then
   echo "   repo exists — skip create"
 else
@@ -84,7 +85,7 @@ docker run --rm -v "$PWD:/src" -w /src --network "$EDGE_NET" \
   alpine/git -c safe.directory=/src push --all \
   "http://$ADMIN:$FORGEJO_TOKEN@forgejo:3000/$ADMIN/node-config.git" 2>&1 | tail -1
 
-echo "== 5/5 coordination repo (the agents' shared notebook) =="
+echo "== 5/6 coordination repo (the agents' shared notebook) =="
 # Issues + the project board here are how tenants track work and hand off:
 # resident sessions file what they left unfinished, ephemeral tenants record
 # their artifact (or their failure) before teardown, the operator reads one
@@ -113,6 +114,33 @@ for LABEL in '{"name":"handoff","color":"#1f6feb","description":"for the next te
 done
 saveenv COORDINATION_REPO "$ADMIN/coordination"
 echo "   labels seeded; COORDINATION_REPO -> .env"
+
+echo "== 6/6 assistant user + weaker token =="
+# The front-door assistant (agent/ASSISTANT.md): converses, reads, files
+# issues. Deliberately weaker than agent-dev — read:repository (docs, skills,
+# clones) + write:issue (the notebook). No code-write scope: it has no PR
+# path, so "do X to the node" always flows through a handoff to agent-dev.
+if FJ admin user list | grep -qw assistant; then
+  echo "   assistant exists — skip"
+else
+  FJ admin user create --username assistant --password "$(openssl rand -base64 18)" \
+     --email "assistant@node.invalid" --must-change-password=false
+fi
+if [[ -z "${ASSISTANT_FORGEJO_TOKEN:-}" ]]; then
+  ATOKEN=$(FJ admin user generate-access-token --username assistant \
+      --token-name front-door --scopes read:repository,write:issue --raw)
+  saveenv ASSISTANT_FORGEJO_TOKEN "$ATOKEN"
+  echo "   minted assistant token -> .env ASSISTANT_FORGEJO_TOKEN (read:repository,write:issue)"
+else
+  echo "   ASSISTANT_FORGEJO_TOKEN already set — skip"
+fi
+# read on node-config (its window into how the node works), write on the
+# notebook (its only write surface — repo-level write; the token still
+# caps it to issues).
+API -X PUT "https://git.localhost/api/v1/repos/$ADMIN/node-config/collaborators/assistant" \
+    -d '{"permission":"read"}' >/dev/null || true
+API -X PUT "https://git.localhost/api/v1/repos/$ADMIN/coordination/collaborators/assistant" \
+    -d '{"permission":"write"}' >/dev/null || true
 
 echo
 echo "Done. Forgejo is config-as-code: no installer ran, state is one volume,"

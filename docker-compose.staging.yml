@@ -20,6 +20,7 @@ services:
   oauth2-proxy: { container_name: !reset "" }
   homepage:     { container_name: !reset "" }
   agent:        { container_name: !reset "" }
+  assistant:    { container_name: !reset "" }
   registry:     { container_name: !reset "" }
   miniflux:     { container_name: !reset "" }
   miniflux-db:  { container_name: !reset "" }

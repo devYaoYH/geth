@@ -29,6 +29,7 @@ volumes:
   radicale_data:
   pocketid_data:
   agent_workspace:
+  assistant_workspace:
   miniflux_db:
   bridge_data:      # the local mail/calendar mirror — hourly in restic (backup.sh)
 
@@ -216,6 +217,37 @@ services:
       COORDINATION_REPO: ${COORDINATION_REPO:-}      # the shared notebook (skills/coordination)
     volumes:
       - agent_workspace:/workspace
+    networks: [agents]
+
+  # --- the front-door assistant ------------------------------------------------
+  # The conversational tenant: the operator opens a terminal and asks for
+  # things — reads, summaries, notes. Distinct identity from agent-dev with
+  # a deliberately weaker token: read on node-config, write on ISSUES only.
+  # It has no PR path; work needing code changes becomes a `handoff` issue
+  # the dev-agent picks up. Same jail, same spur, own budget.
+  #   docker compose run --rm assistant
+  assistant:
+    profiles: [assistant]
+    build: ./agent
+    image: sovereign-node/agent:local
+    container_name: assistant
+    stdin_open: true
+    tty: true
+    environment:
+      ANTHROPIC_BASE_URL: http://litellm:4000
+      ANTHROPIC_AUTH_TOKEN: ${ASSISTANT_LLM_KEY:-}      # its own virtual key, own budget
+      ANTHROPIC_MODEL: ${ASSISTANT_MODEL:-claude-sonnet}
+      ANTHROPIC_SMALL_FAST_MODEL: ${AGENT_FAST_MODEL:-claude-haiku}
+      AGENT_GIT_USER: assistant
+      AGENT_FORGEJO_TOKEN: ${ASSISTANT_FORGEJO_TOKEN:-} # read:repository,write:issue — no code writes
+      NODE_CONFIG_REPO: ${NODE_CONFIG_REPO:-}
+      COORDINATION_REPO: ${COORDINATION_REPO:-}
+      MINIFLUX_TASK_TOKEN: ${MINIFLUX_TASK_TOKEN:-}     # read-only feed surface, same as the digester
+    volumes:
+      - assistant_workspace:/workspace
+      # Its operating contract replaces the dev-agent one baked into the image.
+      - ./agent/ASSISTANT.md:/home/agent/.claude/CLAUDE.md:ro
+      - ./agent/ASSISTANT.md:/home/agent/AGENTS.md:ro
     networks: [agents]
 
   # --- service registry (M1) --------------------------------------------------
