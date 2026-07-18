@@ -109,9 +109,29 @@ else:
     print("updated")
 EOF
 )
-if [[ "$CHANGED" == "updated" ]]; then
+# Memos is the single notes system of record — Open WebUI's built-in notes
+# silo stays off. Persistent-config: the ENABLE_NOTES env is inert once the
+# DB row exists, so enforce the row here (same reason as the wiring above).
+NOTES_OFF=$(docker exec -i open-webui python3 - <<'EOF'
+import sqlite3, time
+db = sqlite3.connect("/app/backend/data/webui.db")
+row = db.execute("select value from config where key='notes.enable'").fetchone()
+if row and row[0] == 'false':
+    print("unchanged")
+else:
+    db.execute(
+        "insert into config (key, value, updated_at) values ('notes.enable','false',?) "
+        "on conflict(key) do update set value='false', updated_at=excluded.updated_at",
+        (int(time.time()),))
+    db.commit()
+    print("updated")
+EOF
+)
+[[ "$NOTES_OFF" == "updated" ]] && echo "   builtin notes disabled (memos is the notes surface)"
+
+if [[ "$CHANGED" == "updated" || "$NOTES_OFF" == "updated" ]]; then
   docker restart open-webui >/dev/null   # persistent config loads at startup
-  echo "   wiring updated — open-webui restarted"
+  echo "   config updated — open-webui restarted"
 else
   echo "   wiring unchanged — skip restart"
 fi

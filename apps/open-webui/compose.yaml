@@ -43,6 +43,11 @@ services:
       # first OAuth user on a fresh node becomes admin; break-glass form
       # LOGIN for existing accounts stays available).
       ENABLE_SIGNUP: "false"
+      # Memos is the single notes system of record (manifest [expose.chat]
+      # tools); Open WebUI's built-in notes silo stays off so "my notes"
+      # has exactly one answer. NB persistent-config: on an already-seeded
+      # DB this env is inert — chat-tools-setup.sh flips the row too.
+      ENABLE_NOTES: "false"
     volumes:
       - openwebui_data:/app/backend/data
     # `front`, not `edge`: this surface needs no internet egress. Caddy routes
