@@ -24,6 +24,12 @@ loadenv() {
 }
 loadenv
 
+saveenv() {  # saveenv <key> <value> [file=.env]
+  local f="${3:-.env}"
+  grep -q "^$1=" "$f" && sed -i '' "s|^$1=.*|$1=$2|" "$f" || printf '%s=%s
+' "$1" "$2" >> "$f"
+}
+
 +echo "== 0/2 radicale: ensure htpasswd auth (for chat write) =="
 +# A write-capable chat surface must NOT ride an unauthenticated backend.
 +# Create/update an htpasswd-backed Radicale config on first run, and mint a
