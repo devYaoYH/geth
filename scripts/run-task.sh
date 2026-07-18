@@ -66,6 +66,7 @@ done
 # inheritance. --rm + no volume = the workspace provably dies at teardown.
 docker run --rm --name "$RUN" \
   --network sovereign-node_agents \
+  -e AGENT_HARNESS=claude \
   -e ANTHROPIC_BASE_URL=http://litellm:4000 \
   -e ANTHROPIC_AUTH_TOKEN="$RUN_KEY" \
   -e ANTHROPIC_MODEL="$MODEL" \
