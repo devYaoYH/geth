@@ -26,12 +26,8 @@ loadenv
 
 saveenv() {  # saveenv <key> <value> [file=.env]
   local f="${3:-.env}"
-  if grep -q "^$1=" "$f"; then
-    sed -i  "s|^$1=.*|$1=$2|" "$f"
-  else
-    printf '%s=%s
+  grep -q "^$1=" "$f" && sed -i '' "s|^$1=.*|$1=$2|" "$f" || printf '%s=%s
 ' "$1" "$2" >> "$f"
-  fi
 }
 
 echo "== 0/2 radicale: ensure htpasswd auth (for chat write) =="
