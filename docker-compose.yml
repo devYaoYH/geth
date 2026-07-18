@@ -26,6 +26,8 @@ include:
     env_file: secrets/open-webui.env
   - path: apps/gog-bridge/compose.yaml
     env_file: secrets/gog-bridge.env
+  - path: apps/snake/compose.yaml
+    env_file: secrets/snake.env
 
 networks:
   edge:

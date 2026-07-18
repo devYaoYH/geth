@@ -1,0 +1,8 @@
+# snake's door — imported by the root Caddyfile (import apps/*/route.caddy),
+# so ring guards and the (authed) snippet are already defined when this loads.
+# Ring 1 — a small browser game (profile: apps)
+
+game.{$NODE_DOMAIN} {
+	import ring1
+	reverse_proxy snake:8080
+}
