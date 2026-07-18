@@ -29,7 +29,8 @@ saveenv() {  # saveenv <key> <value> [file=.env]
   if grep -q "^$1=" "$f"; then
     sed -i "s|^$1=.*|$1=$2|" "$f"
   else
-    printf '%s=%s\n' "$1" "$2" >> "$f"
+    printf '%s=%s
+' "$1" "$2" >> "$f"
   fi
 }
 
