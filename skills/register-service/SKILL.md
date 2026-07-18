@@ -41,6 +41,11 @@ files. Checklist:
   include list is generated from it.
 - **Dashboard** (`config/homepage/services.yaml`): add it if ring 1 humans
   should see it.
+- **Chat tools** (`docs/CHAT-TOOLS.md`): if the operator's chat should be
+  able to read/act on this app, declare `[expose.chat] tools = "<url>"` in
+  the manifest and ship the shim at `apps/<name>/toolshim/` — read-only by
+  default; every write endpoint is a deliberate policy decision, argued in
+  the PR body. The operator runs `scripts/chat-tools-setup.sh` after merge.
 - **Secrets by name only**: new env vars go in the compose fragment as
   `${VAR_NAME:-}` with a note, and in `apps/<name>/env.example` (names, no
   values). Host-side tooling mints the values into `secrets/<name>.env`
