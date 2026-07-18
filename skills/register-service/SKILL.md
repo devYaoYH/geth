@@ -17,10 +17,12 @@ files. Checklist:
   unless-stopped`, no docker socket, no host mounts. Add the `include:`
   entry (`path` + `env_file: secrets/<name>.env`) in `docker-compose.yml` —
   that line is the only root-file touch.
-- **Networks, minimal**: `edge` only if Caddy must route to it; the
-  `agents` spur only if agent tenants call its declared surface; a private
-  network for its database with exactly one client. Never grant a network
-  "just in case" — the wire mirrors the manifest.
+- **Networks, minimal**: `front` (internal) for browser surfaces — Caddy
+  routes in, LiteLLM and the IdP are reachable, no internet egress; `edge`
+  ONLY if the app genuinely calls out (miniflux fetches feeds) — justify it
+  in the PR body. The `agents` spur only if agent tenants call its declared
+  surface; a private network for its database with exactly one client.
+  Never grant a network "just in case" — the wire mirrors the manifest.
 - **Caddy route** (`apps/<name>/route.caddy`, imported by the root
   Caddyfile's glob): the right ring — `import ring0` (operator), `import
   ring1` (trusted people; `import authed` for the browser paths if the app

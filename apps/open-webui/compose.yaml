@@ -36,10 +36,14 @@ services:
       OAUTH_MERGE_ACCOUNTS_BY_EMAIL: "true"
     volumes:
       - openwebui_data:/app/backend/data
-    networks: [edge]
+    # `front`, not `edge`: this surface needs no internet egress. Caddy routes
+    # in, LiteLLM answers inference, and the IdP resolves to Caddy's alias on
+    # the same net — structurally nowhere else to call, like the agents spur.
+    networks: [front]
 
 networks:
-  edge:
+  front:
+    internal: true
 
 volumes:
   openwebui_data:

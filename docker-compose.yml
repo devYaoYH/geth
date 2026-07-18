@@ -29,6 +29,13 @@ include:
 
 networks:
   edge:
+  front:
+    # Egress-less browser surfaces (today: open-webui). Caddy routes IN, the
+    # app reaches LiteLLM and the IdP (via Caddy's alias below) — and nothing
+    # else: internal means no internet route, the same structural guarantee
+    # the agents spur has. Apps join `front` unless they genuinely need
+    # egress (miniflux fetches feeds; that's what `edge` is for).
+    internal: true
   litellm:
   dockerwatch:
     # homepage <-> docker-proxy ONLY: read-only container status for the
@@ -71,7 +78,13 @@ services:
       - ./apps:/srv/apps:ro
       - caddy_data:/data
       - caddy_config:/config
-    networks: [edge]
+    networks:
+      edge:
+      front:
+        # The IdP's hostname resolves to Caddy on the internal net, so
+        # egress-less apps still complete server-side OIDC (token/userinfo)
+        # by hairpinning through the door — with the real certificate.
+        aliases: ["auth.${NODE_DOMAIN}"]
 
   litellm:
     # Digest-pinned (as is every image here). To update: scripts/pin-images.sh,
@@ -106,7 +119,7 @@ services:
       PROXY_ADMIN_ID: ${LITELLM_PROXY_ADMIN_ID:-}
     volumes:
       - ./config/litellm.yaml:/app/config.yaml:ro
-    networks: [edge, litellm, agents]   # agents call inference here, by virtual key
+    networks: [edge, litellm, agents, front]   # agents + front apps call inference here, by virtual key
 
   litellm-db:
     image: postgres:16-alpine@sha256:16bc17c64a573ef34162af9298258d1aec548232985b33ed7b1eac33ba35c229
@@ -213,7 +226,7 @@ services:
       HOMEPAGE_VAR_POCKET_ID_API_KEY: ${POCKET_ID_API_KEY:-}
     volumes:
       - ./config/homepage:/app/config
-    networks: [edge, dockerwatch]
+    networks: [edge, dockerwatch, front]   # front: health-pings the egress-less apps
 
   # Read-only docker status for the dashboard: the proxy exposes ONLY
   # container listing (CONTAINERS=1; everything else stays 0/denied) on an
