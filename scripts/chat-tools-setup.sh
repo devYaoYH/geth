@@ -27,7 +27,7 @@ loadenv
 saveenv() {  # saveenv <key> <value> [file=.env]
   local f="${3:-.env}"
   if grep -q "^$1=" "$f"; then
-    sed -i "s|^$1=.*|$1=$2|" "$f"
+    sed -i  "s|^$1=.*|$1=$2|" "$f"
   else
     printf '%s=%s
 ' "$1" "$2" >> "$f"
@@ -48,7 +48,8 @@ if docker ps --format '{{.Names}}' | grep -qx radicale; then
     RAD_PASS="$RADICALE_TOOL_PASSWORD"
   fi
   saveenv RADICALE_TOOL_USER "$RAD_USER" secrets/radicale.env
-  # Build or update /data/config, /data/users, /data/rights inside the container
+  # Build or update /data/users, /data/rights inside the container (config is tracked
+  # in-repo at apps/radicale/config and mounted at /config/config by compose)
   HTPASS=$(openssl passwd -apr1 "$RAD_PASS")
   docker exec radicale sh -c 'mkdir -p /data/collections && touch /data/users /data/rights'
   # Ensure user entry exists/updated (replace or append)
@@ -64,34 +65,6 @@ EOF'
     echo "   wrote /data/rights"
   else
     echo "   rights file present — skip"
-  fi
-  # Config: htpasswd auth, filesystem storage in /data
-  if ! docker exec radicale sh -c "test -s /data/config && grep -q htpasswd /data/config" >/dev/null 2>&1; then
-    docker exec radicale sh -c 'cat > /data/config <<EOF
-[server]
-hosts = 0.0.0.0:5232
-
-[auth]
-type = htpasswd
-htpasswd_filename = /data/users
-htpasswd_encryption = md5
-
-[storage]
-filesystem_folder = /data/collections
-
-[web]
-type = builtin
-
-[rights]
-type = from_file
-file = /data/rights
-
-[logging]
-level = info
-EOF'
-    echo "   wrote /data/config"
-  else
-    echo "   /data/config present — skip"
   fi
   docker restart radicale >/dev/null 2>&1 && echo "   radicale restarted to pick up auth"
 else
