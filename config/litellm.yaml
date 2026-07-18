@@ -45,6 +45,9 @@ litellm_settings:
   drop_params: true
   num_retries: 2
   request_timeout: 120
+  # Pairs with store_prompts_in_spend_logs below: captures the raw request
+  # (the messages) alongside the response in each spend-log row.
+  log_raw_request_response: true
 
 general_settings:
   # Virtual keys, spend tracking and budgets are stored in Postgres.
@@ -52,4 +55,9 @@ general_settings:
   #   curl -s https://llm.<domain>/key/generate \
   #     -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
   #     -d '{"key_alias":"agent-feeds","models":["claude-haiku"],"max_budget":5}'
-  store_prompts_in_spend_logs: false
+  # Full request/response traces in the Logs UI (llm.<domain>/ui -> Logs).
+  # Deliberate tradeoff: every conversation — yours and the agents' — lands
+  # in litellm-db in cleartext. Acceptable here because that DB is ring 0,
+  # on-node, and reviewing what an agent was actually told / actually said
+  # IS the operator's audit surface for jail runs.
+  store_prompts_in_spend_logs: true

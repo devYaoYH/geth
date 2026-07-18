@@ -21,6 +21,16 @@ authorization moment; nothing you do is applied until then.
      flagging.
   4. **Credentials required** — each scope and why, minted by the operator
      on merge. Missing credential? Name it here; do not work around it.
+- **Request the operator's review on every PR** — otherwise it never
+  appears in their Forgejo dashboard (that tab only shows PRs created by,
+  assigned to, or review-requested to them). After creating the PR:
+
+      curl -s -H "Authorization: token $AGENT_FORGEJO_TOKEN" \
+        -H 'Content-Type: application/json' \
+        -X POST "http://forgejo:3000/api/v1/repos/<repo>/pulls/<index>/requested_reviewers" \
+        -d '{"reviewers":["operator"]}'
+
+  A PR nobody sees is a PR that never happened.
 - Destructive operations (deletions, migrations, anything touching user
   data) ship as reviewable scripts with a dry-run mode inside the PR,
   never as actions taken during your session.
