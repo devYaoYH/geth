@@ -1,12 +1,16 @@
 # Chat tools: the manifest is the wire
 
-The operator's chat (Open WebUI) can call tools against the node's own apps
-— notes search today, calendar reads next. There is deliberately **no
-central tool service**: each app that wants to be chat-visible declares it
-in its own manifest, ships its own shim in its own directory, and
-`scripts/chat-tools-setup.sh` makes Open WebUI agree. Adding a tool surface
-to chat is an app-directory PR plus one script run; removing it is deleting
-the manifest lines.
+The operator's chat (Open WebUI) can call tools against the node's own
+apps. There is deliberately **no central tool service**: each app that
+wants to be chat-visible declares it in its own manifest, ships its own
+shim in its own directory, and `scripts/chat-tools-setup.sh` makes Open
+WebUI agree. Adding a tool surface to chat is an app-directory PR plus one
+script run; removing it is deleting the manifest lines — which is exactly
+how memos was unwired (operator decision 2026-07-18: memos is a pure HUMAN
+notes app; chat's model uses Open WebUI's built-in notes as its scratchpad;
+the read-only memos shim survives at `apps/memos/toolshim` as this doc's
+reference implementation, and its retired credential-minting block is in
+git history on `scripts/chat-tools-setup.sh`).
 
 ## The contract
 

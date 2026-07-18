@@ -6,12 +6,14 @@
 # line; remove it the same way). sso-setup.sh's sibling: idempotent, host-side,
 # re-run whenever a manifest's [expose.chat] changes.
 #
-#   1. mint upstream credentials the shims need (today: a Memos personal
-#      access token -> secrets/memos.env)
-#   2. build + start the toolshim services for enabled profiles
-#   3. collect [expose.chat].tools from manifest/*.toml and write Open
-#      WebUI's tool_server.connections persistent config; restart it only
-#      if the wiring actually changed
+#   1. build + start the declared toolshims (apps/<name>/toolshim, service
+#      <name>-toolshim by convention) whose base app is running
+#   2. rebuild Open WebUI's tool_server.connections persistent config from
+#      the manifests; restart it only if the wiring actually changed
+#
+# Shim upstream credentials are the shim's business: minted into
+# secrets/<app>.env by an app-specific block a shim's PR adds here (see the
+# retired memos example in git history for the pattern), never hand-placed.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -21,48 +23,8 @@ loadenv() {
   set +a
 }
 loadenv
-saveenv() {  # saveenv <key> <value> [file=.env]
-  local f="${3:-.env}"
-  grep -q "^$1=" "$f" && sed -i '' "s|^$1=.*|$1=$2|" "$f" || printf '%s=%s\n' "$1" "$2" >> "$f"
-}
 
-echo "== 1/3 upstream credentials for the shims =="
-# Memos: a personal access token acting as the operator (memos has no
-# narrower grant; the shim's READ-ONLY endpoint list is the actual scope).
-NOTES_CURL=(/usr/bin/curl -sk -H "Content-Type: application/json")
-[[ "$NODE_DOMAIN" == "localhost" ]] && NOTES_CURL+=(--resolve "notes.localhost:443:127.0.0.1")
-if [[ -n "${MEMOS_TOOL_TOKEN:-}" ]]; then
-  echo "   memos tool token exists — skip"
-elif ! docker ps --format '{{.Names}}' | grep -qx memos; then
-  echo "   memos not running — skip; re-run after enabling --profile apps"
-else
-  JWT=$("${NOTES_CURL[@]}" -X POST "https://notes.${NODE_DOMAIN}/api/v1/auth/signin" \
-    -d "{\"passwordCredentials\":{\"username\":\"${MEMOS_ADMIN_USER:-admin}\",\"password\":\"${MEMOS_ADMIN_PASSWORD:-}\"}}" \
-    | python3 -c 'import json,sys; print(json.load(sys.stdin).get("accessToken",""))')
-  TOKEN=$("${NOTES_CURL[@]}" -X POST -H "Authorization: Bearer $JWT" \
-    "https://notes.${NODE_DOMAIN}/api/v1/users/${MEMOS_ADMIN_USER}/personalAccessTokens" \
-    -d '{"description":"memos-toolshim (chat read surface)"}' \
-    | python3 -c 'import json,sys; print(json.load(sys.stdin).get("token",""))')
-  [[ -n "$TOKEN" ]] || { echo "   ERROR: could not mint memos token"; exit 1; }
-  saveenv MEMOS_TOOL_TOKEN "$TOKEN" secrets/memos.env
-  echo "   minted memos personal access token -> secrets/memos.env"
-fi
-loadenv
-
-echo "== 2/3 toolshim services =="
-if docker ps --format '{{.Names}}' | grep -qx memos; then
-  docker compose --profile apps up -d --build memos-toolshim >/dev/null 2>&1
-  echo "   memos-toolshim up"
-else
-  echo "   memos profile not live — skip"
-fi
-
-echo "== 3/3 register in Open WebUI (manifests -> tool_server.connections) =="
-if ! docker ps --format '{{.Names}}' | grep -qx open-webui; then
-  echo "   open-webui not running — skip; re-run after enabling --profile chat"
-  exit 0
-fi
-CONNECTIONS=$(python3 - <<'EOF'
+DECLARED=$(python3 - <<'EOF'
 import glob, json, tomllib
 conns = []
 for path in sorted(glob.glob("manifest/*.toml")):
@@ -70,15 +32,37 @@ for path in sorted(glob.glob("manifest/*.toml")):
         m = tomllib.load(f)
     url = m.get("expose", {}).get("chat", {}).get("tools")
     if url:
-        conns.append({
-            "url": url,
-            "path": "openapi.json",
-            "auth_type": "none",
-            "key": "",
-            "config": {"enable": True, "access_control": None},
-            "info": {"name": m.get("app", {}).get("name", url),
-                     "description": f"declared by {path} [expose.chat]"},
-        })
+        conns.append({"app": m.get("app", {}).get("name"), "url": url, "path": path})
+print(json.dumps(conns))
+EOF
+)
+
+echo "== 1/2 toolshim services =="
+for app in $(echo "$DECLARED" | python3 -c 'import json,sys; print(" ".join(c["app"] for c in json.load(sys.stdin)))'); do
+  if [[ -d "apps/$app/toolshim" ]] && docker ps --format '{{.Names}}' | grep -qx "$app"; then
+    docker compose --profile apps --profile feeds --profile chat up -d --build "${app}-toolshim" >/dev/null 2>&1 \
+      && echo "   ${app}-toolshim up" || echo "   ${app}-toolshim FAILED to start"
+  else
+    echo "   $app: shim dir or base app missing — skip"
+  fi
+done
+[[ "$DECLARED" == "[]" ]] && echo "   no [expose.chat] declarations — chat gets no tools"
+
+echo "== 2/2 register in Open WebUI (manifests -> tool_server.connections) =="
+if ! docker ps --format '{{.Names}}' | grep -qx open-webui; then
+  echo "   open-webui not running — skip; re-run after enabling --profile chat"
+  exit 0
+fi
+CONNECTIONS=$(python3 - "$DECLARED" <<'EOF'
+import json, sys
+conns = []
+for c in json.loads(sys.argv[1]):
+    conns.append({
+        "url": c["url"], "path": "openapi.json", "auth_type": "none", "key": "",
+        "config": {"enable": True, "access_control": None},
+        "info": {"name": c["app"],
+                 "description": "declared by " + c["path"] + " [expose.chat]"},
+    })
 print(json.dumps(conns))
 EOF
 )
@@ -109,31 +93,11 @@ else:
     print("updated")
 EOF
 )
-# Memos is the single notes system of record — Open WebUI's built-in notes
-# silo stays off. Persistent-config: the ENABLE_NOTES env is inert once the
-# DB row exists, so enforce the row here (same reason as the wiring above).
-NOTES_OFF=$(docker exec -i open-webui python3 - <<'EOF'
-import sqlite3, time
-db = sqlite3.connect("/app/backend/data/webui.db")
-row = db.execute("select value from config where key='notes.enable'").fetchone()
-if row and row[0] == 'false':
-    print("unchanged")
-else:
-    db.execute(
-        "insert into config (key, value, updated_at) values ('notes.enable','false',?) "
-        "on conflict(key) do update set value='false', updated_at=excluded.updated_at",
-        (int(time.time()),))
-    db.commit()
-    print("updated")
-EOF
-)
-[[ "$NOTES_OFF" == "updated" ]] && echo "   builtin notes disabled (memos is the notes surface)"
-
-if [[ "$CHANGED" == "updated" || "$NOTES_OFF" == "updated" ]]; then
+if [[ "$CHANGED" == "updated" ]]; then
   docker restart open-webui >/dev/null   # persistent config loads at startup
-  echo "   config updated — open-webui restarted"
+  echo "   wiring updated — open-webui restarted"
 else
   echo "   wiring unchanged — skip restart"
 fi
 echo
-echo "Done. Chat models can now call the declared tool servers."
+echo "Done. Chat's tool surface now matches the manifests."

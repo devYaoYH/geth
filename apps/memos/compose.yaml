@@ -20,20 +20,9 @@ services:
     # (memos) the IdP resolves to Caddy's alias on the same net.
     networks: [front]
 
-  # The chat-facing tool surface (manifest [expose.chat]): read-only OpenAPI
-  # endpoints over memos, registered in Open WebUI by chat-tools-setup.sh.
-  # Holds ONE credential — a Memos personal access token the same script
-  # mints — and lives on `front` with everything else in the chain.
-  memos-toolshim:
-    profiles: [apps]
-    build: ./toolshim
-    image: sovereign-node/memos-toolshim:local
-    container_name: memos-toolshim
-    restart: unless-stopped
-    environment:
-      MEMOS_URL: http://memos:5230
-      MEMOS_TOOL_TOKEN: ${MEMOS_TOOL_TOKEN:-}
-    networks: [front]
+  # (The memos-toolshim service was retired 2026-07-18 with the manifest's
+  # [expose.chat]: memos is human-only. Code stays at ./toolshim as the
+  # CHAT-TOOLS.md reference implementation.)
 
 networks:
   front:
