@@ -44,25 +44,51 @@ if docker ps --format '{{.Names}}' | grep -qx radicale; then
     RAD_PASS="$RADICALE_TOOL_PASSWORD"
   fi
   saveenv RADICALE_TOOL_USER "$RAD_USER" secrets/radicale.env
+  [[ -n "${RADICALE_TOOL_CAL_PATH:-}" ]] || saveenv RADICALE_TOOL_CAL_PATH "/${RAD_USER}/calendar" secrets/radicale.env
   # Build or update /data/users, /data/rights inside the container (config is tracked
   # in-repo at apps/radicale/config and mounted at /config/config by compose)
   HTPASS=$(openssl passwd -apr1 "$RAD_PASS")
-  docker exec radicale sh -c 'mkdir -p /data/collections && touch /data/users /data/rights'
+  RVOL=(docker run --rm -v sovereign-node_radicale_data:/data alpine)
+  "${RVOL[@]}" sh -c 'mkdir -p /data/collections && touch /data/users /data/rights'
   # Ensure user entry exists/updated (replace or append)
-  docker exec radicale sh -lc "grep -v '^${RAD_USER}:' /data/users > /data/users.new || true; echo '${RAD_USER}:${HTPASS}' >> /data/users.new; mv /data/users.new /data/users"
+  "${RVOL[@]}" sh -c "grep -v '^${RAD_USER}:' /data/users > /data/users.new || true; echo '${RAD_USER}:${HTPASS}' >> /data/users.new; mv /data/users.new /data/users"
   # Minimal rights: owner full access (login -> own collections)
-  if ! docker exec radicale sh -c "grep -q '\[owner-write\]' /data/rights" >/dev/null 2>&1; then
-    docker exec radicale sh -c 'cat > /data/rights <<EOF
-[owner-write]
-user = .+
-collection = ^%(login)s(/.*)?$
-permission = rw
+  # v3 rights syntax: {user} placeholder (v2's %(login)s crashes the server).
+  # Written via a one-off volume mount so it works even while radicale is
+  # crash-looping on a bad rights file.
+  if ! "${RVOL[@]}" grep -q 'permissions:' /data/rights 2>/dev/null; then
+    "${RVOL[@]}" sh -c 'cat > /data/rights <<EOF
+[root]
+user: .+
+collection:
+permissions: R
+
+[principal]
+user: .+
+collection: {user}
+permissions: RW
+
+[calendars]
+user: .+
+collection: {user}/[^/]+
+permissions: rw
 EOF'
     echo "   wrote /data/rights"
   else
     echo "   rights file present — skip"
   fi
   docker restart radicale >/dev/null 2>&1 && echo "   radicale restarted to pick up auth"
+  # Bootstrap the shim's calendar collection (idempotent): radicale does
+  # not auto-create collections on PUT.
+  RAD_CURL=(curl -sk -u "$RAD_USER:$RAD_PASS")
+  [[ "$NODE_DOMAIN" == "localhost" ]] && RAD_CURL+=(--resolve "cal.localhost:443:127.0.0.1")
+  CAL="${RADICALE_TOOL_CAL_PATH:-/$RAD_USER/calendar}"
+  sleep 2
+  if [[ "$("${RAD_CURL[@]}" -X PROPFIND -H "Depth: 0" -o /dev/null -w '%{http_code}' "https://cal.${NODE_DOMAIN}${CAL}/")" == "404" ]]; then
+    "${RAD_CURL[@]}" -X MKCALENDAR -o /dev/null "https://cal.${NODE_DOMAIN}${CAL}/" && echo "   created collection ${CAL}"
+  else
+    echo "   collection ${CAL} present — skip"
+  fi
 else
   echo "   radicale not running — skip auth setup; re-run after enabling --profile apps"
 fi
