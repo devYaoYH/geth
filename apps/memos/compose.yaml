@@ -16,10 +16,13 @@ services:
     restart: unless-stopped
     volumes:
       - memos_data:/var/opt/memos
-    networks: [edge]
+    # `front`, not `edge`: no internet egress needed — Caddy routes in, and
+    # (memos) the IdP resolves to Caddy's alias on the same net.
+    networks: [front]
 
 networks:
-  edge:
+  front:
+    internal: true
 
 volumes:
   memos_data:

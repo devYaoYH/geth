@@ -38,6 +38,11 @@ services:
       # the existing (admin) one — safe because the IdP is ours and verified.
       ENABLE_OAUTH_SIGNUP: "true"
       OAUTH_MERGE_ACCOUNTS_BY_EMAIL: "true"
+      # Ring guard lets the whole LAN load the page — form signup must not be
+      # an account-creation path. Invited humans arrive via the IdP only (the
+      # first OAuth user on a fresh node becomes admin; break-glass form
+      # LOGIN for existing accounts stays available).
+      ENABLE_SIGNUP: "false"
     volumes:
       - openwebui_data:/app/backend/data
     # `front`, not `edge`: this surface needs no internet egress. Caddy routes
