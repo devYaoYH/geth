@@ -260,6 +260,12 @@ services:
     stdin_open: true
     tty: true
     environment:
+      # Harness choice (entrypoint): forge (default) or claude. Forge speaks
+      # OpenAI-compatible to LiteLLM — model FAMILIES are a `:model <alias>`
+      # switch, bounded by the key's allowlist, never a harness change.
+      AGENT_HARNESS: ${AGENT_HARNESS:-forge}
+      OPENAI_URL: http://litellm:4000/v1
+      OPENAI_API_KEY: ${AGENT_LLM_KEY:-}             # same virtual key, both harnesses
       ANTHROPIC_BASE_URL: http://litellm:4000
       ANTHROPIC_AUTH_TOKEN: ${AGENT_LLM_KEY:-}       # virtual key — never a provider key
       ANTHROPIC_MODEL: ${AGENT_MODEL:-claude-sonnet}             # LiteLLM alias
@@ -286,6 +292,11 @@ services:
     stdin_open: true
     tty: true
     environment:
+      # Conversational tenant keeps Claude Code as its harness (known-good
+      # UX); forge is available here too via AGENT_HARNESS=forge.
+      AGENT_HARNESS: ${ASSISTANT_HARNESS:-claude}
+      OPENAI_URL: http://litellm:4000/v1
+      OPENAI_API_KEY: ${ASSISTANT_LLM_KEY:-}
       ANTHROPIC_BASE_URL: http://litellm:4000
       ANTHROPIC_AUTH_TOKEN: ${ASSISTANT_LLM_KEY:-}      # its own virtual key, own budget
       ANTHROPIC_MODEL: ${ASSISTANT_MODEL:-claude-sonnet}

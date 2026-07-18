@@ -10,7 +10,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       git curl ca-certificates python3 ripgrep jq \
     && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g @anthropic-ai/claude-code
+# Two harnesses, one contract (AGENTS.md): forgecode is the DEFAULT (open
+# source, provider-agnostic — any OpenAI-compatible model family via
+# LiteLLM); Claude Code stays as the backup utility. Select per-session
+# with AGENT_HARNESS=forge|claude (entrypoint). forgecode pinned: its npm
+# postinstall fetches the platform binary at BUILD time (host has internet;
+# the jail never does).
+RUN npm install -g @anthropic-ai/claude-code forgecode@2.13.18
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
@@ -18,9 +24,13 @@ RUN chmod +x /usr/local/bin/entrypoint.sh
 # unprivileged, high-uid user; rootless podman later maps this differently per-app
 RUN useradd -m -u 10001 agent
 # AGENTS.md is the canonical, framework-agnostic operating contract; each
-# tenant image wires it wherever its framework looks. Claude Code: user memory.
+# tenant image wires it wherever its framework looks. Claude Code: user
+# memory. Forgecode: the AGENTS.md standard (entrypoint links it into the
+# workspace repo, where forge looks). forge.toml: the LiteLLM provider +
+# default model (linked as .forge.toml; key arrives by env var name).
 COPY --chown=agent:agent AGENTS.md /home/agent/.claude/CLAUDE.md
 COPY --chown=agent:agent AGENTS.md /home/agent/AGENTS.md
+COPY --chown=agent:agent forge.toml /home/agent/forge.toml
 USER agent
 WORKDIR /workspace
 

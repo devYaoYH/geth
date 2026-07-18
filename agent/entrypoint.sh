@@ -1,5 +1,9 @@
 #!/bin/sh
-# Prepare the jail's workspace, then hand off to Claude Code.
+# Prepare the jail's workspace, then hand off to the session's harness:
+# forgecode by default, Claude Code as the backup utility
+# (AGENT_HARNESS=claude). Both speak to LiteLLM with the same virtual key —
+# forge via OPENAI_URL (any model family the key allows), claude via
+# ANTHROPIC_BASE_URL.
 set -eu
 
 if [ -n "${AGENT_FORGEJO_TOKEN:-}" ]; then
@@ -23,4 +27,15 @@ else
 fi
 
 cd /workspace/node-config 2>/dev/null || cd /workspace
-exec claude "$@"
+
+# Forge follows the AGENTS.md standard + forge.yaml in the project root;
+# link the jail's copies into whatever repo we landed in, untracked (the
+# contract is the image's business, never a commit in node-config).
+if [ -d .git ]; then
+  [ -e AGENTS.md ]   || { ln -s "$HOME/AGENTS.md" AGENTS.md; echo "AGENTS.md" >> .git/info/exclude; }
+  [ -e .forge.toml ] || { ln -s "$HOME/forge.toml" .forge.toml; echo ".forge.toml" >> .git/info/exclude; }
+fi
+
+HARNESS="${AGENT_HARNESS:-forge}"
+echo "[jail] harness: $HARNESS (AGENT_HARNESS=forge|claude to switch)"
+exec "$HARNESS" "$@"
