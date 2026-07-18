@@ -72,6 +72,12 @@ if [[ -z "${OAUTH2_PROXY_COOKIE_SECRET:-}" ]]; then
   saveenv OAUTH2_PROXY_COOKIE_SECRET "$(openssl rand -base64 32 | head -c 32)"
   echo "   generated authshim cookie secret -> .env"
 fi
+# Open WebUI session-JWT key: must be OURS and stable — the image's fallback
+# regenerates in the container fs on every recreate, logging everyone out.
+if [[ -z "${OPENWEBUI_SECRET_KEY:-}" ]]; then
+  saveenv OPENWEBUI_SECRET_KEY "$(openssl rand -hex 32)" secrets/open-webui.env
+  echo "   generated open-webui session key -> secrets/open-webui.env"
+fi
 loadenv   # pick up whatever was just minted
 
 echo "== 2/5 operator = LiteLLM UI admin =="

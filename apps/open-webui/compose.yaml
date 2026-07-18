@@ -20,6 +20,10 @@ services:
     environment:
       OPENAI_API_BASE_URL: http://litellm:4000/v1
       OPENAI_API_KEY: ${ASSISTANT_LLM_KEY:-}
+      # Session JWTs are signed with this. Unset, the image generates one in
+      # the CONTAINER fs — every recreate then invalidates all sessions and
+      # the stale browser token loops / <-> /auth. sso-setup.sh generates it.
+      WEBUI_SECRET_KEY: ${OPENWEBUI_SECRET_KEY:-}
       ENABLE_OLLAMA_API: "false"
       WEBUI_URL: https://chat.${NODE_DOMAIN}
       # One passkey at the door (native OIDC; client minted by sso-setup.sh).
