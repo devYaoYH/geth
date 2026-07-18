@@ -14,7 +14,7 @@ services:
     volumes:
       - radicale_data:/data
       # Radicale reads its config from /config/config; ship it tracked and mount it.
-      - ./apps/radicale/config:/config/config:ro
+      - ./config:/config/config:ro
     # On the agents spur as a declared READ surface: the assistant answers
     # "what's on my calendar" and digest briefs list the day — with a CalDAV
     # credential the operator passes, per the triage rule (reads may be broad).
