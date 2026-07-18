@@ -1,0 +1,27 @@
+# Snake — a small canvas game served as a static site. Built locally.
+
+[app]
+name = "snake"
+version = "0"
+description = "Simple Snake game; ring 1 behind the door"
+image = "sovereign-node/snake"
+ring = 1
+
+[service]
+port = 8080
+health = "/"
+
+[needs]
+# No internal calls; static site only.
+
+[resources]
+volumes = []
+database = "none"
+
+[tests]
+command = "curl -fsS $APP_URL/"
+timeout_seconds = 15
+
+[lifecycle]
+backup = []
+update_policy = "staged"

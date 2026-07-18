@@ -1,0 +1,21 @@
+# snake — an app fragment, merged into the node stack by the root
+# docker-compose.yml `include:` list. This file owns everything snake:
+# service, the networks it joins. Secrets would arrive BY NAME from
+# secrets/snake.env (the include's env_file) — this app has none today.
+# Shared networks re-declare the root's attributes exactly; compose merges.
+
+services:
+  # --- apps ring 1: snake -------------------------------------------------------
+  # A tiny static site (canvas game) served by python http.server. Built
+  # locally from ./site (no internet needed; upstream image already cached).
+  snake:
+    profiles: [apps]
+    build: ./site
+    image: sovereign-node/snake:local
+    container_name: snake
+    restart: unless-stopped
+    networks: [front]
+
+networks:
+  front:
+    internal: true
