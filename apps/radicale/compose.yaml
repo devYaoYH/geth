@@ -20,6 +20,19 @@ services:
     # (memos) the IdP resolves to Caddy's alias on the same net.
     networks: [front, agents]
 
+
+  radicale-toolshim:
+    profiles: [apps]
+    build: ./toolshim
+    container_name: radicale-toolshim
+    restart: unless-stopped
+    environment:
+      RADICALE_URL: http://radicale:5232
+      RADICALE_TOOL_USER: ${RADICALE_TOOL_USER:-}
+      RADICALE_TOOL_PASSWORD: ${RADICALE_TOOL_PASSWORD:-}
+      RADICALE_TOOL_CAL_PATH: ${RADICALE_TOOL_CAL_PATH:-}
+      PORT: 8100
+    networks: [front]
 networks:
   front:
     internal: true
