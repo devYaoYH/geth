@@ -16,6 +16,8 @@ health = "/health"
 
 [needs]
 llm = { models = ["claude-sonnet", "claude-haiku"], budget_usd = 15.0 }  # the assistant's key, shared surface
+# Human login is the door's business: native OIDC against the node IdP
+# (client minted by sso-setup.sh), not a `needs` credential.
 
 [resources]
 volumes = ["openwebui_data"]

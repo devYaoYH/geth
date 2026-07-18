@@ -26,15 +26,22 @@ password mode to fall back to, nothing to configure wrong.
    identity; enroll a second passkey (backup device or hardware key) from
    the admin UI before inviting anyone.
 2. **Mint an API key** (admin → API Keys) and put it in `.env` as
-   `POCKET_ID_API_KEY` — `scripts/invite.sh` uses it.
-3. **Federate the apps:** `./scripts/sso-setup.sh` — mints OIDC clients for
-   Forgejo and the LiteLLM admin UI in Pocket ID, registers the auth source
-   in Forgejo, and grants your Pocket ID identity LiteLLM UI admin. Forgejo's
-   local admin password login stays enabled as the documented break-glass.
-4. **Non-OIDC apps** (Radicale): create an OIDC client for `oauth2-proxy`,
-   fill `OAUTH2_PROXY_*` in `.env`, enable the shim —
-   `docker compose --profile authshim up -d` — and put the app's Caddy route
-   behind the `(authed)` forward-auth snippet in the Caddyfile.
+   `POCKET_ID_API_KEY` — `scripts/invite.sh` uses it. (`.env` is the node
+   plane only; each app's secrets live in host-only `secrets/<app>.env`,
+   scaffolded by `scripts/install.sh` — see `docs/SSO.md`.)
+3. **Federate the apps:** `./scripts/sso-setup.sh` — mints OIDC clients in
+   Pocket ID for every human surface (Forgejo, LiteLLM UI, Miniflux, Open
+   WebUI, Memos, and the oauth2-proxy shim), registers the auth source in
+   Forgejo, seeds the Memos identity provider (set `MEMOS_ADMIN_TOKEN` in
+   `.env` first, or paste the printed values once), grants your Pocket ID
+   identity LiteLLM UI admin, and starts the authshim. Local admin password
+   logins stay enabled as the documented break-glass. Re-run the script
+   whenever a new surface lands — it is idempotent.
+4. **Non-OIDC apps** (Radicale): already at the door — the authshim gates the
+   web UI at `cal.<domain>`; DAV paths stay on the ring guard because CalDAV
+   clients speak Basic auth, not OIDC redirects. To shim another app: add its
+   callback URL to the `oauth2-proxy` client in Pocket ID and put its Caddy
+   route behind `import authed` (plus a `/oauth2/*` proxy — see `cal`'s route).
 
 ## Reality check for the current MVP
 

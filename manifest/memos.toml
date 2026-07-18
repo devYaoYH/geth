@@ -16,6 +16,8 @@ health = "/healthz"
 [needs]
 # Nothing internal. Data migration (Takeout import) is an ephemeral-task
 # job with a Memos API token minted for that run — the caller declares.
+# Human login is the door's business: OAuth2 IdP against the node IdP,
+# seeded into Memos' DB by sso-setup.sh — not a `needs` credential.
 
 [resources]
 volumes = ["memos_data"]

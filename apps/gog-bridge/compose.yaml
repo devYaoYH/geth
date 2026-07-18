@@ -1,0 +1,37 @@
+# gog-bridge — an app fragment, merged into the node stack by the root
+# docker-compose.yml `include:` list. This file owns everything gog-bridge:
+# service(s), the networks it joins, the volumes it keeps. Secrets arrive
+# BY NAME from secrets/gog-bridge.env (the include's env_file) — values are
+# minted host-side (scripts/sso-setup.sh); no agent ever reads them.
+# Shared networks re-declare the root's attributes exactly; compose merges.
+
+services:
+  # --- the Google bridge (M3) -------------------------------------------------
+  # gog/gws MCP container: mail/calendar/drive via YOUR Google account, exposed
+  # to agents as a typed, read-only-by-default tool surface — send disabled at
+  # the door, structurally. Holds scoped OAuth tokens (cold-upstream class) and
+  # the continuously synced local mirror that makes Gmail exitable. Lives on
+  # the agents spur ONLY: no edge, no public route — consumers are agents, not
+  # browsers. Image is operator-supplied (mirror it first: scripts/mirror.sh;
+  # pin the digest in .env). Enable:  docker compose --profile bridge up -d
+
+  gog-bridge:
+    profiles: [bridge]
+    image: ${GOG_BRIDGE_IMAGE:-sovereign-node/gog-bridge:unset}
+    container_name: gog-bridge
+    restart: unless-stopped
+    environment:
+      GOOGLE_OAUTH_CLIENT_ID: ${GOG_OAUTH_CLIENT_ID:-}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${GOG_OAUTH_CLIENT_SECRET:-}
+      BRIDGE_FLAGS: "--readonly-default --gmail-no-send"   # the door policy, as absence
+    volumes:
+      - bridge_data:/data        # OAuth tokens + the local mail mirror (hourly restic)
+    networks: [agents]
+
+networks:
+  agents:
+    internal: true
+
+volumes:
+      # the local mail/calendar mirror — hourly in restic (backup.sh)
+  bridge_data:

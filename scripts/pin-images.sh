@@ -11,10 +11,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-COMPOSE=docker-compose.yml
+# core plane + every app fragment (apps/<name>/compose.yaml)
+COMPOSE_FILES=(docker-compose.yml apps/*/compose.yaml)
 
 # tag@digest -> tag, so we always resolve the *tag's* current digest
-tags=$(grep -Eo 'image: [^@ ]+' "$COMPOSE" | awk '{print $2}' | sort -u)
+tags=$(grep -Eoh 'image: [^@ ]+' "${COMPOSE_FILES[@]}" | awk '{print $2}' | sort -u)
 
 for tag in $tags; do
   if [[ "${1:-}" == "--pull" ]]; then
@@ -26,10 +27,12 @@ for tag in $tags; do
     continue
   fi
   # replace any existing pin for this tag with the current digest
-  sed -i.bak -E "s|image: $tag(@sha256:[a-f0-9]{64})?|image: $tag@$digest|" "$COMPOSE"
+  for f in "${COMPOSE_FILES[@]}"; do
+    sed -i.bak -E "s|image: $tag(@sha256:[a-f0-9]{64})?|image: $tag@$digest|" "$f"
+  done
   echo "PIN   $tag@$digest"
 done
-rm -f "$COMPOSE.bak"
+for f in "${COMPOSE_FILES[@]}"; do rm -f "$f.bak"; done
 
 echo
-echo "Review with:  git diff $COMPOSE"
+echo "Review with:  git diff docker-compose.yml apps/*/compose.yaml"

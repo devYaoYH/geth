@@ -1,0 +1,21 @@
+# radicale's door — imported by the root Caddyfile (import apps/*/route.caddy),
+# so ring guards and the (authed) snippet are already defined when this loads.
+# Ring 1 — calendar/contacts (enable with:  docker compose --profile apps up -d)
+# The browser door (Radicale's web UI) authenticates via the authshim ->
+# Pocket ID. DAV paths stay on the ring guard: CalDAV clients speak Basic
+# auth, not OIDC redirects — their credential plane is the app's business,
+# same split as LiteLLM (humans via SSO, API callers via their own keys).
+cal.{$NODE_DOMAIN} {
+	import ring1
+	handle /oauth2/* {
+		reverse_proxy oauth2-proxy:4180
+	}
+	@webui path / /.web /.web/*
+	handle @webui {
+		import authed
+		reverse_proxy radicale:5232
+	}
+	handle {
+		reverse_proxy radicale:5232
+	}
+}

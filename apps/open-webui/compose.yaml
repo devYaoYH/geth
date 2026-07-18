@@ -1,0 +1,45 @@
+# open-webui — an app fragment, merged into the node stack by the root
+# docker-compose.yml `include:` list. This file owns everything open-webui:
+# service(s), the networks it joins, the volumes it keeps. Secrets arrive
+# BY NAME from secrets/open-webui.env (the include's env_file) — values are
+# minted host-side (scripts/sso-setup.sh); no agent ever reads them.
+# Shared networks re-declare the root's attributes exactly; compose merges.
+
+services:
+  # --- chat: the assistant in a browser ----------------------------------------
+  # Open WebUI (mirrored at mirrors/open-webui) pointed at LiteLLM with the
+  # ASSISTANT'S budgeted virtual key — chat.<domain> is a conversation surface
+  # with the assistant's brain and budget. Honest limit: no tools here yet —
+  # the issue-filing, registry-reading assistant is the terminal session; the
+  # full tool-wielding chat bridge is the roadmap's next step. Ring 0.
+  open-webui:
+    profiles: [chat]
+    image: ghcr.io/open-webui/open-webui:main@sha256:a26effeb220e132482bf7e0560b3404843e7bc40d23051144e062960df8df6b0
+    container_name: open-webui
+    restart: unless-stopped
+    environment:
+      OPENAI_API_BASE_URL: http://litellm:4000/v1
+      OPENAI_API_KEY: ${ASSISTANT_LLM_KEY:-}
+      ENABLE_OLLAMA_API: "false"
+      WEBUI_URL: https://chat.${NODE_DOMAIN}
+      # One passkey at the door (native OIDC; client minted by sso-setup.sh).
+      # With the client unminted no SSO button renders and the local login
+      # form still works — that is localhost-dev mode, same stance as Miniflux.
+      OAUTH_CLIENT_ID: ${OPENWEBUI_OIDC_CLIENT_ID:-}
+      OAUTH_CLIENT_SECRET: ${OPENWEBUI_OIDC_CLIENT_SECRET:-}
+      OPENID_PROVIDER_URL: https://auth.${NODE_DOMAIN}/.well-known/openid-configuration
+      OAUTH_PROVIDER_NAME: pocket-id
+      OAUTH_SCOPES: openid email profile
+      # Signup-via-IdP may create the account, but an email match merges into
+      # the existing (admin) one — safe because the IdP is ours and verified.
+      ENABLE_OAUTH_SIGNUP: "true"
+      OAUTH_MERGE_ACCOUNTS_BY_EMAIL: "true"
+    volumes:
+      - openwebui_data:/app/backend/data
+    networks: [edge]
+
+networks:
+  edge:
+
+volumes:
+  openwebui_data:

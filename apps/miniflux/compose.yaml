@@ -1,0 +1,65 @@
+# miniflux — an app fragment, merged into the node stack by the root
+# docker-compose.yml `include:` list. This file owns everything miniflux:
+# service(s), the networks it joins, the volumes it keeps. Secrets arrive
+# BY NAME from secrets/miniflux.env (the include's env_file) — values are
+# minted host-side (scripts/sso-setup.sh); no agent ever reads them.
+# Shared networks re-declare the root's attributes exactly; compose merges.
+
+services:
+  # --- feeds (M3): the algorithm-free timeline --------------------------------
+  # Pull-based aggregation; OIDC against the node IdP. On the agents spur
+  # because the feed digester (tasks/morning-digest.md) reads it by API token —
+  # a read-only token you mint in Miniflux settings, per the triage rule:
+  # reads may be broad. Enable:  docker compose --profile feeds up -d
+
+  miniflux:
+    profiles: [feeds]
+    image: miniflux/miniflux:latest@sha256:cd353a6af9ce663291f405eddef26fa0d567f486b521c5d34e3fb50e41938b9a
+    container_name: miniflux
+    restart: unless-stopped
+    depends_on:
+      - miniflux-db
+    environment:
+      DATABASE_URL: postgres://miniflux:${MINIFLUX_DB_PASSWORD:-}@miniflux-db:5432/miniflux?sslmode=disable
+      RUN_MIGRATIONS: "1"
+      BASE_URL: https://feeds.${NODE_DOMAIN}/
+      # Break-glass admin, created once; day-to-day login is OIDC via Pocket ID
+      # (client minted by scripts/sso-setup.sh, like Forgejo's and LiteLLM's).
+      CREATE_ADMIN: "1"
+      ADMIN_USERNAME: ${MINIFLUX_ADMIN_USER:-admin}
+      ADMIN_PASSWORD: ${MINIFLUX_ADMIN_PASSWORD:-}
+      # Discovery is fetched lazily (verified): with the client unminted the
+      # OIDC button just fails and the break-glass admin login still works —
+      # that is localhost-dev mode. sso-setup.sh mints the real client.
+      # NB: provider must be set or ABSENT — miniflux rejects empty string.
+      OAUTH2_PROVIDER: oidc
+      OAUTH2_CLIENT_ID: ${MINIFLUX_OIDC_CLIENT_ID:-}
+      OAUTH2_CLIENT_SECRET: ${MINIFLUX_OIDC_CLIENT_SECRET:-}
+      OAUTH2_OIDC_DISCOVERY_ENDPOINT: https://auth.${NODE_DOMAIN}
+      OAUTH2_REDIRECT_URL: https://feeds.${NODE_DOMAIN}/oauth2/oidc/callback
+      OAUTH2_USER_CREATION: "0"        # invited humans only, same stance as Forgejo
+    networks: [edge, feeds, agents]
+
+  miniflux-db:
+    profiles: [feeds]
+    image: postgres:16-alpine@sha256:16bc17c64a573ef34162af9298258d1aec548232985b33ed7b1eac33ba35c229
+    container_name: miniflux-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: miniflux
+      POSTGRES_USER: miniflux
+      POSTGRES_PASSWORD: ${MINIFLUX_DB_PASSWORD:-}
+    volumes:
+      - miniflux_db:/var/lib/postgresql/data
+    networks: [feeds]
+
+networks:
+  edge:
+  agents:
+    internal: true
+  feeds:
+    # Miniflux <-> its database. One client, one network, like litellm's.
+    internal: true
+
+volumes:
+  miniflux_db:

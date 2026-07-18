@@ -1,0 +1,8 @@
+# open-webui's door — imported by the root Caddyfile (import apps/*/route.caddy),
+# so ring guards and the (authed) snippet are already defined when this loads.
+# Ring 0 — chat with the assistant (profile: chat). It spends the assistant's
+# budget on every message; the operator's surface, not the household's.
+chat.{$NODE_DOMAIN} {
+	import ring0
+	reverse_proxy open-webui:8080
+}

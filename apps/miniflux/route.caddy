@@ -1,0 +1,7 @@
+# miniflux's door — imported by the root Caddyfile (import apps/*/route.caddy),
+# so ring guards and the (authed) snippet are already defined when this loads.
+# Ring 1 — feeds, the algorithm-free timeline (profile: feeds; OIDC login)
+feeds.{$NODE_DOMAIN} {
+	import ring1
+	reverse_proxy miniflux:8080
+}

@@ -1,0 +1,25 @@
+# memos — an app fragment, merged into the node stack by the root
+# docker-compose.yml `include:` list. This file owns everything memos:
+# service(s), the networks it joins, the volumes it keeps. Secrets arrive
+# BY NAME from secrets/memos.env (the include's env_file) — values are
+# minted host-side (scripts/sso-setup.sh); no agent ever reads them.
+# Shared networks re-declare the root's attributes exactly; compose merges.
+
+services:
+  # --- apps ring 1: notes ------------------------------------------------------
+  # The Keep-clone from docs/AGENT.md's worked example. Upstream cached at
+  # mirrors/memos; SQLite in its volume; backup declared in manifest/memos.toml.
+  memos:
+    profiles: [apps]
+    image: neosmemo/memos:stable@sha256:3e1253477066eb2aefa91145f7f9038bb931ed88c8a3ee05310a933594cdba7d
+    container_name: memos
+    restart: unless-stopped
+    volumes:
+      - memos_data:/var/opt/memos
+    networks: [edge]
+
+networks:
+  edge:
+
+volumes:
+  memos_data:

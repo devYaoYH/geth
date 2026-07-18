@@ -1,0 +1,27 @@
+# radicale — an app fragment, merged into the node stack by the root
+# docker-compose.yml `include:` list. This file owns everything radicale:
+# service(s), the networks it joins, the volumes it keeps. Secrets arrive
+# BY NAME from secrets/radicale.env (the include's env_file) — values are
+# minted host-side (scripts/sso-setup.sh); no agent ever reads them.
+# Shared networks re-declare the root's attributes exactly; compose merges.
+
+services:
+  radicale:
+    profiles: [apps]
+    image: tomsquest/docker-radicale:latest@sha256:ce7264ac5bd7ee7f5903e2ce1398a5df25ae3dda7e017487f510a761827144a5
+    container_name: radicale
+    restart: unless-stopped
+    volumes:
+      - radicale_data:/data
+    # On the agents spur as a declared READ surface: the assistant answers
+    # "what's on my calendar" and digest briefs list the day — with a CalDAV
+    # credential the operator passes, per the triage rule (reads may be broad).
+    networks: [edge, agents]
+
+networks:
+  edge:
+  agents:
+    internal: true
+
+volumes:
+  radicale_data:

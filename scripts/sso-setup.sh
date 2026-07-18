@@ -1,26 +1,44 @@
 #!/usr/bin/env bash
-# SSO for the admin surfaces: git.<domain> (Forgejo, native OIDC) and
-# llm.<domain>/ui (LiteLLM, generic OIDC) both authenticate via Pocket ID —
-# one passkey at the door, everywhere. Idempotent; run once per node.
+# SSO at the door for EVERY human surface: git (Forgejo), llm/ui (LiteLLM),
+# feeds (Miniflux), chat (Open WebUI), notes (Memos) — all native OIDC — and
+# cal's web UI (Radicale, no native OIDC) via the oauth2-proxy authshim.
+# One passkey via Pocket ID opens all of them. Idempotent; run once per node,
+# re-run any time a new surface lands.
 #
-#   1. mint OIDC clients "forgejo" + "litellm" in Pocket ID  -> .env
+#   1. mint the OIDC clients in Pocket ID -> .env (+ shim cookie secret)
 #   2. record the operator's Pocket ID user id (LiteLLM UI admin) -> .env
-#   3. [NODE_DOMAIN=localhost only] dev glue: compose override giving
+#   3. seed the Memos identity provider via its API (needs MEMOS_ADMIN_TOKEN;
+#      otherwise prints the values for a one-time paste into Settings -> SSO)
+#   4. [NODE_DOMAIN=localhost only] dev glue: compose override giving
 #      containers DNS for *.localhost + trust for Caddy's local CA
-#   4. register the auth source in Forgejo; recreate litellm/forgejo/caddy
+#   5. register the auth source in Forgejo; recreate the SSO'd services that
+#      are enabled on this node; start the authshim (it is part of the door)
 #
-# Break-glass stays: Forgejo local admin password login remains enabled.
+# Break-glass stays: local admin password logins (Forgejo, Miniflux, Open
+# WebUI's login form) remain enabled. DAV/API credential planes are untouched
+# — only humans log in via OIDC.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-set -a; source .env; set +a
+
+# Credentials are split by blast radius: .env holds node-plane keys (ring 0,
+# tenants); each app's live in host-only secrets/<app>.env (see docs/SSO.md).
+loadenv() {
+  set -a; source .env
+  for f in secrets/*.env; do [[ -e "$f" ]] && source "$f"; done
+  set +a
+}
+loadenv
 
 AUTH_URL="https://auth.${NODE_DOMAIN}"
 CURL=(/usr/bin/curl -sk -H "X-API-KEY: $POCKET_ID_API_KEY" -H "Content-Type: application/json")
 [[ "$NODE_DOMAIN" == "localhost" ]] && CURL+=(--resolve "auth.localhost:443:127.0.0.1")
-saveenv() { grep -q "^$1=" .env && sed -i '' "s|^$1=.*|$1=$2|" .env || printf '%s=%s\n' "$1" "$2" >> .env; }
+saveenv() {  # saveenv <key> <value> [file=.env]
+  local f="${3:-.env}"
+  grep -q "^$1=" "$f" && sed -i '' "s|^$1=.*|$1=$2|" "$f" || printf '%s=%s\n' "$1" "$2" >> "$f"
+}
 
-mint_client() {  # mint_client <name> <callback-url> <ENV_PREFIX>
-  local name=$1 cb=$2 prefix=$3 id secret
+mint_client() {  # mint_client <name> <callback-url> <ENV_PREFIX> [envfile]
+  local name=$1 cb=$2 prefix=$3 envfile="${4:-.env}" id secret
   id=$("${CURL[@]}" "$AUTH_URL/api/oidc/clients" | python3 -c "
 import json,sys
 for c in json.load(sys.stdin)['data']:
@@ -36,31 +54,99 @@ for c in json.load(sys.stdin)['data']:
   fi
   secret=$("${CURL[@]}" -X POST "$AUTH_URL/api/oidc/clients/$id/secret" \
       | python3 -c 'import json,sys; print(json.load(sys.stdin)["secret"])')
-  saveenv "${prefix}_CLIENT_ID" "$id"
-  saveenv "${prefix}_CLIENT_SECRET" "$secret"
-  echo "   minted '$name' ($id) -> .env"
+  saveenv "${prefix}_CLIENT_ID" "$id" "$envfile"
+  saveenv "${prefix}_CLIENT_SECRET" "$secret" "$envfile"
+  echo "   minted '$name' ($id) -> $envfile"
 }
 
-echo "== 1/4 OIDC clients in Pocket ID =="
+echo "== 1/5 OIDC clients in Pocket ID =="
 mint_client forgejo "https://git.${NODE_DOMAIN}/user/oauth2/pocket-id/callback" FORGEJO_OIDC
 mint_client litellm "https://llm.${NODE_DOMAIN}/sso/callback" LITELLM_OIDC
-# feeds (miniflux, --profile feeds): minting ahead of enablement is harmless —
-# an unused client in Pocket ID grants nothing.
-mint_client miniflux "https://feeds.${NODE_DOMAIN}/oauth2/oidc/callback" MINIFLUX_OIDC
+# Profile-gated surfaces (feeds/chat/apps): minting ahead of enablement is
+# harmless — an unused client in Pocket ID grants nothing.
+mint_client miniflux "https://feeds.${NODE_DOMAIN}/oauth2/oidc/callback" MINIFLUX_OIDC secrets/miniflux.env
+mint_client open-webui "https://chat.${NODE_DOMAIN}/oauth/oidc/callback" OPENWEBUI_OIDC secrets/open-webui.env
+mint_client memos "https://notes.${NODE_DOMAIN}/auth/callback" MEMOS_OIDC secrets/memos.env
+mint_client oauth2-proxy "https://cal.${NODE_DOMAIN}/oauth2/callback" OAUTH2_PROXY
+if [[ -z "${OAUTH2_PROXY_COOKIE_SECRET:-}" ]]; then
+  saveenv OAUTH2_PROXY_COOKIE_SECRET "$(openssl rand -base64 32 | head -c 32)"
+  echo "   generated authshim cookie secret -> .env"
+fi
+loadenv   # pick up whatever was just minted
 
-echo "== 2/4 operator = LiteLLM UI admin =="
+echo "== 2/5 operator = LiteLLM UI admin =="
 ADMIN_ID=$("${CURL[@]}" "$AUTH_URL/api/users" | python3 -c "
 import json,sys
 users=[u for u in json.load(sys.stdin)['data'] if u.get('isAdmin')]
 print(users[0]['id'] if users else '')")
+OP_USERNAME=$("${CURL[@]}" "$AUTH_URL/api/users" | python3 -c "
+import json,sys
+users=[u for u in json.load(sys.stdin)['data'] if u.get('isAdmin')]
+print(users[0].get('username','') if users else '')")
 [[ -n "$ADMIN_ID" ]] && saveenv LITELLM_PROXY_ADMIN_ID "$ADMIN_ID" && echo "   admin user id: $ADMIN_ID"
 
-echo "== 3/4 local-dev glue =="
+echo "== 3/5 memos: break-glass host + identity provider =="
+# Memos keeps IdP config in its DB (no env plane) and can't be configured
+# until a HOST account exists. Bootstrap both over the API (verified against
+# memos 0.29): create the host named after the operator's Pocket ID username —
+# memos maps SSO logins to accounts by username (fieldMapping.identifier =
+# preferred_username), so the passkey lands on this same host account — then
+# sign in with the break-glass password and seed the identity provider.
+NOTES_URL="https://notes.${NODE_DOMAIN}"
+NOTES_CURL=(/usr/bin/curl -sk -H "Content-Type: application/json")
+[[ "$NODE_DOMAIN" == "localhost" ]] && NOTES_CURL+=(--resolve "notes.localhost:443:127.0.0.1")
+MEMOS_IDP_JSON=$(cat <<EOF
+{"title":"pocket-id","type":"OAUTH2","identifierFilter":"","config":{"oauth2Config":{
+  "clientId":"${MEMOS_OIDC_CLIENT_ID:-}","clientSecret":"${MEMOS_OIDC_CLIENT_SECRET:-}",
+  "authUrl":"$AUTH_URL/authorize","tokenUrl":"$AUTH_URL/api/oidc/token",
+  "userInfoUrl":"$AUTH_URL/api/oidc/userinfo","scopes":["openid","profile","email"],
+  "fieldMapping":{"identifier":"preferred_username","displayName":"name","email":"email"}}}}
+EOF
+)
+if ! docker ps --format '{{.Names}}' | grep -qx memos; then
+  echo "   memos not running (--profile apps) — skip; re-run after enabling"
+else
+  if "${NOTES_CURL[@]}" "$NOTES_URL/api/v1/instance/profile" | grep -q '"admin": *null'; then
+    MEMOS_ADMIN_USER="${MEMOS_ADMIN_USER:-${OP_USERNAME:-admin}}"
+    MEMOS_ADMIN_PASSWORD="${MEMOS_ADMIN_PASSWORD:-$(openssl rand -base64 18)}"
+    saveenv MEMOS_ADMIN_USER "$MEMOS_ADMIN_USER" secrets/memos.env
+    saveenv MEMOS_ADMIN_PASSWORD "$MEMOS_ADMIN_PASSWORD" secrets/memos.env
+    "${NOTES_CURL[@]}" -X POST "$NOTES_URL/api/v1/users" \
+      -d "{\"username\":\"$MEMOS_ADMIN_USER\",\"password\":\"$MEMOS_ADMIN_PASSWORD\"}" >/dev/null
+    echo "   memos: host '$MEMOS_ADMIN_USER' created (break-glass password -> secrets/memos.env)"
+  fi
+  if "${NOTES_CURL[@]}" "$NOTES_URL/api/v1/identity-providers" \
+      | grep -q '"title": *"pocket-id"'; then
+    echo "   memos idp 'pocket-id' exists — skip"
+  else
+    # Any admin credential seeds it: a minted MEMOS_ADMIN_TOKEN if the
+    # operator made one, else a session JWT from the break-glass signin.
+    MEMOS_BEARER="${MEMOS_ADMIN_TOKEN:-}"
+    if [[ -z "$MEMOS_BEARER" && -n "${MEMOS_ADMIN_PASSWORD:-}" ]]; then
+      MEMOS_BEARER=$("${NOTES_CURL[@]}" -X POST "$NOTES_URL/api/v1/auth/signin" \
+        -d "{\"passwordCredentials\":{\"username\":\"${MEMOS_ADMIN_USER:-admin}\",\"password\":\"$MEMOS_ADMIN_PASSWORD\"}}" \
+        | python3 -c 'import json,sys; print(json.load(sys.stdin).get("accessToken",""))' 2>/dev/null)
+    fi
+    if [[ -n "$MEMOS_BEARER" ]]; then
+      "${NOTES_CURL[@]}" -X POST "$NOTES_URL/api/v1/identity-providers" \
+        -H "Authorization: Bearer $MEMOS_BEARER" -d "$MEMOS_IDP_JSON" >/dev/null
+      echo "   memos: pocket-id identity provider registered"
+    else
+      echo "   no memos admin credential (.env MEMOS_ADMIN_TOKEN or MEMOS_ADMIN_PASSWORD)"
+      echo "   — paste into Memos Settings -> SSO by hand:"
+      echo "$MEMOS_IDP_JSON" | sed 's/^/     /'
+    fi
+  fi
+fi
+
+echo "== 4/5 local-dev glue =="
 if [[ "$NODE_DOMAIN" == "localhost" ]]; then
   # containers must reach https://auth.localhost (via Caddy) and trust its CA
   docker exec forgejo cat /etc/ssl/certs/ca-certificates.crt > .local-ca-bundle.pem
   docker exec caddy cat /data/caddy/pki/authorities/local/root.crt >> .local-ca-bundle.pem
-  [[ -f docker-compose.override.yml ]] || cat > docker-compose.override.yml <<'EOF'
+  # Regenerated every run (it is a generated file) so new SSO'd services pick
+  # up their glue on re-run.
+  cat > docker-compose.override.yml <<'EOF'
 # LOCAL-DEV ONLY (gitignored, generated by sso-setup.sh): with a real domain
 # and public CA none of this exists. Gives containers DNS for *.localhost via
 # Caddy and trust for Caddy's internal CA (system bundle + local root).
@@ -68,7 +154,7 @@ services:
   caddy:
     networks:
       edge:
-        aliases: [auth.localhost, git.localhost, llm.localhost]
+        aliases: [auth.localhost, git.localhost, llm.localhost, notes.localhost]
   forgejo:
     environment:
       SSL_CERT_FILE: /certs/local-bundle.pem
@@ -79,15 +165,52 @@ services:
       SSL_CERT_FILE: /certs/local-bundle.pem
     volumes:
       - ./.local-ca-bundle.pem:/certs/local-bundle.pem:ro
+  memos:
+    environment:
+      SSL_CERT_FILE: /certs/local-bundle.pem
+    volumes:
+      - ./.local-ca-bundle.pem:/certs/local-bundle.pem:ro
+  miniflux:
+    environment:
+      SSL_CERT_FILE: /certs/local-bundle.pem
+    volumes:
+      - ./.local-ca-bundle.pem:/certs/local-bundle.pem:ro
+  open-webui:
+    environment:
+      SSL_CERT_FILE: /certs/local-bundle.pem
+      REQUESTS_CA_BUNDLE: /certs/local-bundle.pem
+    volumes:
+      - ./.local-ca-bundle.pem:/certs/local-bundle.pem:ro
+  oauth2-proxy:
+    environment:
+      SSL_CERT_FILE: /certs/local-bundle.pem
+      # Chrome refuses Domain=.localhost cookies (public-suffix rule), which
+      # silently drops the shim's CSRF cookie -> 403 on the OAuth callback.
+      # Host-scope the cookies in local dev; real domains keep .${NODE_DOMAIN}.
+      OAUTH2_PROXY_COOKIE_DOMAINS: cal.localhost
+    volumes:
+      - ./.local-ca-bundle.pem:/certs/local-bundle.pem:ro
 EOF
   echo "   wrote .local-ca-bundle.pem + docker-compose.override.yml"
 else
   echo "   real domain — no glue needed"
 fi
 
-echo "== 4/4 apply =="
-set -a; source .env; set +a
+echo "== 5/5 apply =="
+loadenv
 docker compose up -d caddy forgejo litellm >/dev/null 2>&1
+# Recreate the newly-SSO'd surfaces the operator has enabled; start the
+# authshim — cal's browser door depends on it now. (Miniflux reads its OIDC
+# client from env too, so recreate it if the feeds profile is live.)
+docker ps --format '{{.Names}}' | grep -qx open-webui && \
+  docker compose --profile chat  up -d open-webui >/dev/null 2>&1
+docker ps --format '{{.Names}}' | grep -qx memos && \
+  docker compose --profile apps  up -d memos      >/dev/null 2>&1
+docker ps --format '{{.Names}}' | grep -qx miniflux && \
+  docker compose --profile feeds up -d miniflux   >/dev/null 2>&1
+docker compose --profile authshim up -d oauth2-proxy >/dev/null 2>&1
+# The Caddyfile is bind-mounted — a route change needs a reload, not a recreate.
+docker exec -w /etc/caddy caddy caddy reload >/dev/null 2>&1
 sleep 5
 FJ() { docker exec -u 1000 forgejo forgejo "$@"; }
 if FJ admin auth list | grep -q pocket-id; then
@@ -100,5 +223,6 @@ else
   echo "   forgejo: pocket-id auth source registered"
 fi
 echo
-echo "Done. git.$NODE_DOMAIN shows 'Sign in with pocket-id';"
-echo "llm.$NODE_DOMAIN/ui hands login to Pocket ID. Passkey covers both."
+echo "Done. One passkey now opens: git.$NODE_DOMAIN, llm.$NODE_DOMAIN/ui,"
+echo "feeds.$NODE_DOMAIN, chat.$NODE_DOMAIN, notes.$NODE_DOMAIN, and"
+echo "cal.$NODE_DOMAIN's web UI (via the authshim). DAV/API planes unchanged."

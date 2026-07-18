@@ -28,6 +28,22 @@
 	respond @outside "closed door" 403
 }
 
+# Forward-auth for apps with no native OIDC: Caddy asks oauth2-proxy (an OIDC
+# client of Pocket ID); a hit continues with identity headers copied, a miss
+# bounces the browser into the sign-in flow — one passkey at the door. Shimmed
+# routes must ALSO proxy /oauth2/* to oauth2-proxy (see cal below). The shim
+# runs under the authshim profile; sso-setup.sh mints its client and starts it.
+(authed) {
+	forward_auth oauth2-proxy:4180 {
+		uri /oauth2/auth
+		copy_headers X-Auth-Request-User X-Auth-Request-Email
+		@unauthed status 401 403
+		handle_response @unauthed {
+			redir * /oauth2/start?rd={scheme}://{host}{uri}
+		}
+	}
+}
+
 # --- routes -------------------------------------------------------------------
 
 # Ring 1 — git platform (Forgejo has its own auth; registration disabled)
@@ -41,12 +57,6 @@ git.{$NODE_DOMAIN} {
 llm.{$NODE_DOMAIN} {
 	import ring0
 	reverse_proxy litellm:4000
-}
-
-# Ring 1 — calendar/contacts (enable with:  docker compose --profile apps up -d)
-cal.{$NODE_DOMAIN} {
-	import ring1
-	reverse_proxy radicale:5232
 }
 
 # Ring 2 (by function) — the identity provider IS the public door: family logs
@@ -70,24 +80,10 @@ registry.{$NODE_DOMAIN} {
 	reverse_proxy registry:8090
 }
 
-# Ring 1 — feeds, the algorithm-free timeline (profile: feeds; OIDC login)
-feeds.{$NODE_DOMAIN} {
-	import ring1
-	reverse_proxy miniflux:8080
-}
-
-# Ring 1 — notes, the Keep-clone (profile: apps; Memos has its own accounts)
-notes.{$NODE_DOMAIN} {
-	import ring1
-	reverse_proxy memos:5230
-}
-
-# Ring 0 — chat with the assistant (profile: chat). It spends the assistant's
-# budget on every message; the operator's surface, not the household's.
-chat.{$NODE_DOMAIN} {
-	import ring0
-	reverse_proxy open-webui:8080
-}
+# --- app doors ---------------------------------------------------------------
+# Each app fragment ships its own route: apps/<name>/route.caddy (mounted at
+# /srv/apps). Snippets above (ring0/ring1/authed) are in scope for them.
+import /srv/apps/*/route.caddy
 
 # Ring 1 — the apex lands on the dashboard. If the apex ever goes public
 # (ring 2 below), move this redirect to a path or drop it deliberately.
@@ -95,18 +91,6 @@ chat.{$NODE_DOMAIN} {
 	import ring1
 	redir https://home.{$NODE_DOMAIN}{uri}
 }
-
-# --- forward-auth template ------------------------------------------------
-# For apps with no native OIDC (e.g. Radicale): oauth2-proxy is an OIDC client
-# of Pocket ID; Caddy asks it, the app trusts the asserted header. Enable the
-# authshim profile and import this snippet in the app's route:
-#
-# (authed) {
-# 	forward_auth oauth2-proxy:4180 {
-# 		uri /oauth2/auth
-# 		copy_headers X-Auth-Request-User X-Auth-Request-Email
-# 	}
-# }
 
 # Ring 2 — the deliberately public surface. Empty by design in the MVP.
 # When you're ready: a busy-only calendar feed, a blog, a booking page.

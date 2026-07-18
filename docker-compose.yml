@@ -8,12 +8,28 @@ name: sovereign-node
 #              manifest `needs` declared (today: LiteLLM inference, Forgejo
 #              git). Never databases, never the docker socket.
 
+# --- app fragments -----------------------------------------------------------
+# Each app on the node is a self-contained fragment: apps/<name>/compose.yaml
+# (service + networks + volumes), apps/<name>/route.caddy (its door), and a
+# host-only secrets/<name>.env the include's env_file feeds to interpolation.
+# Adding an app touches its own directory plus one line here — concurrent
+# app PRs do not collide. Core node plane (ingress, identity, LLM gateway,
+# git, tenants) stays in THIS file.
+include:
+  - path: apps/radicale/compose.yaml
+    env_file: secrets/radicale.env
+  - path: apps/memos/compose.yaml
+    env_file: secrets/memos.env
+  - path: apps/miniflux/compose.yaml
+    env_file: secrets/miniflux.env
+  - path: apps/open-webui/compose.yaml
+    env_file: secrets/open-webui.env
+  - path: apps/gog-bridge/compose.yaml
+    env_file: secrets/gog-bridge.env
+
 networks:
   edge:
   litellm:
-  feeds:
-    # Miniflux <-> its database. One client, one network, like litellm's.
-    internal: true
   dockerwatch:
     # homepage <-> docker-proxy ONLY: read-only container status for the
     # dashboard. The raw socket never enters a routed container.
@@ -30,14 +46,9 @@ volumes:
   caddy_config:
   litellm_db:
   forgejo_data:
-  radicale_data:
   pocketid_data:
   agent_workspace:
   assistant_workspace:
-  miniflux_db:
-  bridge_data:      # the local mail/calendar mirror — hourly in restic (backup.sh)
-  memos_data:
-  openwebui_data:
 
 services:
   caddy:
@@ -55,6 +66,9 @@ services:
       EXTRA_TRUSTED_RANGES: ${EXTRA_TRUSTED_RANGES:-192.0.2.0/32}
     volumes:
       - ./caddy:/etc/caddy:ro     # Caddyfile + untracked local/*.caddy overrides
+      # app fragments' route.caddy files; /etc/caddy is itself a ro mount, so
+      # they land beside it and the Caddyfile imports by absolute path
+      - ./apps:/srv/apps:ro
       - caddy_data:/data
       - caddy_config:/config
     networks: [edge]
@@ -134,18 +148,6 @@ services:
     ports:
       - "2222:22"
 
-  radicale:
-    profiles: [apps]
-    image: tomsquest/docker-radicale:latest@sha256:ce7264ac5bd7ee7f5903e2ce1398a5df25ae3dda7e017487f510a761827144a5
-    container_name: radicale
-    restart: unless-stopped
-    volumes:
-      - radicale_data:/data
-    # On the agents spur as a declared READ surface: the assistant answers
-    # "what's on my calendar" and digest briefs list the day — with a CalDAV
-    # credential the operator passes, per the triage rule (reads may be broad).
-    networks: [edge, agents]
-
   # --- identity plane -------------------------------------------------------
   # The node IS the identity provider: passkey -> Pocket ID (OIDC) -> everything
   # federates. Passkey-only is enforced by the product: Pocket ID has no
@@ -162,9 +164,10 @@ services:
       - pocketid_data:/app/data     # SQLite + keys live here; in restic include list
     networks: [edge]
 
-  # Forward-auth shim for apps with no native OIDC (radicale): Caddy asks
-  # oauth2-proxy, oauth2-proxy asks Pocket ID, the app trusts the asserted
-  # header. Enable AFTER creating its OIDC client in Pocket ID (docs/ONBOARDING.md):
+  # Forward-auth shim for apps with no native OIDC (radicale's web UI): Caddy
+  # asks oauth2-proxy, oauth2-proxy asks Pocket ID, the app trusts the asserted
+  # header. sso-setup.sh mints its client + cookie secret and starts it —
+  # it is part of the door. Manual enable:
   #   docker compose --profile authshim up -d
   oauth2-proxy:
     profiles: [authshim]
@@ -182,6 +185,9 @@ services:
       OAUTH2_PROXY_HTTP_ADDRESS: 0.0.0.0:4180
       OAUTH2_PROXY_REVERSE_PROXY: "true"
       OAUTH2_PROXY_SET_XAUTHREQUEST: "true"
+      # One IdP only — skip the interstitial page, go straight to the passkey.
+      OAUTH2_PROXY_SKIP_PROVIDER_BUTTON: "true"
+      OAUTH2_PROXY_CODE_CHALLENGE_METHOD: S256    # PKCE; Pocket ID supports it
     networks: [edge]
 
   # --- trusted-people dashboard ----------------------------------------------
@@ -252,38 +258,6 @@ services:
       - agent_workspace:/workspace
     networks: [agents]
 
-  # --- apps ring 1: notes ------------------------------------------------------
-  # The Keep-clone from docs/AGENT.md's worked example. Upstream cached at
-  # mirrors/memos; SQLite in its volume; backup declared in manifest/memos.toml.
-  memos:
-    profiles: [apps]
-    image: neosmemo/memos:stable@sha256:3e1253477066eb2aefa91145f7f9038bb931ed88c8a3ee05310a933594cdba7d
-    container_name: memos
-    restart: unless-stopped
-    volumes:
-      - memos_data:/var/opt/memos
-    networks: [edge]
-
-  # --- chat: the assistant in a browser ----------------------------------------
-  # Open WebUI (mirrored at mirrors/open-webui) pointed at LiteLLM with the
-  # ASSISTANT'S budgeted virtual key — chat.<domain> is a conversation surface
-  # with the assistant's brain and budget. Honest limit: no tools here yet —
-  # the issue-filing, registry-reading assistant is the terminal session; the
-  # full tool-wielding chat bridge is the roadmap's next step. Ring 0.
-  open-webui:
-    profiles: [chat]
-    image: ghcr.io/open-webui/open-webui:main@sha256:a26effeb220e132482bf7e0560b3404843e7bc40d23051144e062960df8df6b0
-    container_name: open-webui
-    restart: unless-stopped
-    environment:
-      OPENAI_API_BASE_URL: http://litellm:4000/v1
-      OPENAI_API_KEY: ${ASSISTANT_LLM_KEY:-}
-      ENABLE_OLLAMA_API: "false"
-      WEBUI_URL: https://chat.${NODE_DOMAIN}
-    volumes:
-      - openwebui_data:/app/backend/data
-    networks: [edge]
-
   # --- the front-door assistant ------------------------------------------------
   # The conversational tenant: the operator opens a terminal and asks for
   # things — reads, summaries, notes. Distinct identity from agent-dev with
@@ -334,75 +308,6 @@ services:
       - ./registry/registry.py:/srv/registry.py:ro
       - ./manifest:/srv/manifest:ro
     networks: [edge, agents]
-
-  # --- feeds (M3): the algorithm-free timeline --------------------------------
-  # Pull-based aggregation; OIDC against the node IdP. On the agents spur
-  # because the feed digester (tasks/morning-digest.md) reads it by API token —
-  # a read-only token you mint in Miniflux settings, per the triage rule:
-  # reads may be broad. Enable:  docker compose --profile feeds up -d
-
-  miniflux:
-    profiles: [feeds]
-    image: miniflux/miniflux:latest@sha256:cd353a6af9ce663291f405eddef26fa0d567f486b521c5d34e3fb50e41938b9a
-    container_name: miniflux
-    restart: unless-stopped
-    depends_on:
-      - miniflux-db
-    environment:
-      DATABASE_URL: postgres://miniflux:${MINIFLUX_DB_PASSWORD:-}@miniflux-db:5432/miniflux?sslmode=disable
-      RUN_MIGRATIONS: "1"
-      BASE_URL: https://feeds.${NODE_DOMAIN}/
-      # Break-glass admin, created once; day-to-day login is OIDC via Pocket ID
-      # (client minted by scripts/sso-setup.sh, like Forgejo's and LiteLLM's).
-      CREATE_ADMIN: "1"
-      ADMIN_USERNAME: ${MINIFLUX_ADMIN_USER:-admin}
-      ADMIN_PASSWORD: ${MINIFLUX_ADMIN_PASSWORD:-}
-      # Discovery is fetched lazily (verified): with the client unminted the
-      # OIDC button just fails and the break-glass admin login still works —
-      # that is localhost-dev mode. sso-setup.sh mints the real client.
-      # NB: provider must be set or ABSENT — miniflux rejects empty string.
-      OAUTH2_PROVIDER: oidc
-      OAUTH2_CLIENT_ID: ${MINIFLUX_OIDC_CLIENT_ID:-}
-      OAUTH2_CLIENT_SECRET: ${MINIFLUX_OIDC_CLIENT_SECRET:-}
-      OAUTH2_OIDC_DISCOVERY_ENDPOINT: https://auth.${NODE_DOMAIN}
-      OAUTH2_REDIRECT_URL: https://feeds.${NODE_DOMAIN}/oauth2/oidc/callback
-      OAUTH2_USER_CREATION: "0"        # invited humans only, same stance as Forgejo
-    networks: [edge, feeds, agents]
-
-  miniflux-db:
-    profiles: [feeds]
-    image: postgres:16-alpine@sha256:16bc17c64a573ef34162af9298258d1aec548232985b33ed7b1eac33ba35c229
-    container_name: miniflux-db
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: miniflux
-      POSTGRES_USER: miniflux
-      POSTGRES_PASSWORD: ${MINIFLUX_DB_PASSWORD:-}
-    volumes:
-      - miniflux_db:/var/lib/postgresql/data
-    networks: [feeds]
-
-  # --- the Google bridge (M3) -------------------------------------------------
-  # gog/gws MCP container: mail/calendar/drive via YOUR Google account, exposed
-  # to agents as a typed, read-only-by-default tool surface — send disabled at
-  # the door, structurally. Holds scoped OAuth tokens (cold-upstream class) and
-  # the continuously synced local mirror that makes Gmail exitable. Lives on
-  # the agents spur ONLY: no edge, no public route — consumers are agents, not
-  # browsers. Image is operator-supplied (mirror it first: scripts/mirror.sh;
-  # pin the digest in .env). Enable:  docker compose --profile bridge up -d
-
-  gog-bridge:
-    profiles: [bridge]
-    image: ${GOG_BRIDGE_IMAGE:-sovereign-node/gog-bridge:unset}
-    container_name: gog-bridge
-    restart: unless-stopped
-    environment:
-      GOOGLE_OAUTH_CLIENT_ID: ${GOG_OAUTH_CLIENT_ID:-}
-      GOOGLE_OAUTH_CLIENT_SECRET: ${GOG_OAUTH_CLIENT_SECRET:-}
-      BRIDGE_FLAGS: "--readonly-default --gmail-no-send"   # the door policy, as absence
-    volumes:
-      - bridge_data:/data        # OAuth tokens + the local mail mirror (hourly restic)
-    networks: [agents]
 
   # ---------------------------------------------------------------------------
   # Coming in later milestones (see docs/ROADMAP.md) — intentionally not yet here:

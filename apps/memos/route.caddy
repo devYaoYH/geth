@@ -1,0 +1,7 @@
+# memos's door — imported by the root Caddyfile (import apps/*/route.caddy),
+# so ring guards and the (authed) snippet are already defined when this loads.
+# Ring 1 — notes, the Keep-clone (profile: apps; Memos has its own accounts)
+notes.{$NODE_DOMAIN} {
+	import ring1
+	reverse_proxy memos:5230
+}

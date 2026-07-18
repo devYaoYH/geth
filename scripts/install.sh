@@ -34,6 +34,15 @@ else
             -e "s|^LITELLM_DB_PASSWORD=.*|LITELLM_DB_PASSWORD=$(openssl rand -hex 24)|" .env
   echo "   scaffolded .env (secrets generated; add your provider API key yourself)"
 fi
+# Per-app secrets files (docs/SSO.md): compose's include env_file needs each
+# to exist; scaffold empties from the fragments' env.example. Values are
+# minted later (sso-setup.sh) — names only live in git.
+mkdir -p secrets
+for ex in apps/*/env.example; do
+  [[ -e "$ex" ]] || continue
+  app=$(basename "$(dirname "$ex")")
+  [[ -f "secrets/$app.env" ]] || { cp "$ex" "secrets/$app.env"; echo "   scaffolded secrets/$app.env"; }
+done
 set -a; source .env; set +a
 
 # --- 2. reachability -> front-door proposal ---------------------------------
