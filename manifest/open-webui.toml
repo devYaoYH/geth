@@ -15,7 +15,9 @@ port = 8080
 health = "/health"
 
 [needs]
-llm = { models = ["claude-sonnet", "claude-haiku"], budget_usd = 15.0 }  # the assistant's key, shared surface
+# The assistant's key, shared surface. Full gateway catalog granted (operator
+# choice 2026-07-18); the budget cap is the spend guard, not the model list.
+llm = { models = ["claude-sonnet", "claude-haiku", "gpt", "deepseek-flash"], budget_usd = 15.0 }
 # Human login is the door's business: native OIDC against the node IdP
 # (client minted by sso-setup.sh), not a `needs` credential.
 
