@@ -84,9 +84,6 @@ services:
       # radicale route on SSO-authed browser sessions. Derived automatically
       # by scripts/derive-secrets.sh; set in .env, never committed.
       RADICALE_WEB_AUTH: ${RADICALE_WEB_AUTH:-}
-      # SSO user email allowed to receive the operator credential injection.
-      # Empty = single-operator mode (any SSO user maps to operator).
-      RADICALE_OPERATOR_EMAIL: ${RADICALE_OPERATOR_EMAIL:-}
     volumes:
       - ./caddy:/etc/caddy:ro     # Caddyfile + untracked local/*.caddy overrides
       # app fragments' route.caddy files; /etc/caddy is itself a ro mount, so

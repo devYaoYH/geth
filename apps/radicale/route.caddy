@@ -2,50 +2,40 @@
 # so ring guards and the (authed) snippet are already defined when this loads.
 # Ring 1 — calendar/contacts (enable with:  docker compose --profile apps up -d)
 #
-# Auth split (issue #7, Candidate C — revised per operator review):
-#   - Web UI paths (/, /.web, /.web/*) require SSO via oauth2-proxy.
-#     After SSO validates, Caddy injects the operator's Basic credential
-#     so Radicale's htpasswd accepts the session — the browser never shows
-#     the htpasswd login form. The injected credential is gated by
-#     RADICALE_OPERATOR_EMAIL: only the matching SSO user gets the injection;
-#     when unset (single-operator mode), any SSO-authenticated user maps to
-#     operator inside Radicale.
-#   - Everything else (CalDAV sync, discovery, PROPFIND, etc.) reaches
-#     Radicale directly, preserving its native Basic challenge-response flow.
-#     DAV clients send their own credentials and Radicale validates against
-#     htpasswd — unchanged from the pre-Candidate baseline.
+# Auth split (issue #7, Candidate C take 2 — cookie-based routing):
+#   - Browser requests carry the oauth2-proxy session cookie (_oauth2_proxy).
+#     Route ALL of them (web UI paths AND the SPA's /operator DAV calls)
+#     through SSO, then inject the operator Basic credential so Radicale's
+#     htpasswd accepts the session — no second login form, and the calendar
+#     loads.
+#   - CalDAV clients (no SSO cookie) pass through to Radicale's native Basic
+#     challenge-response flow (discovery -> 401 -> retry works; no OIDC
+#     redirect). The client's own credentials are validated against htpasswd
+#     — unchanged from the pre-Candidate baseline.
 #   - An unauthenticated in-network caller hitting Radicale directly still
 #     gets 401 (htpasswd). An agent on the agents spur cannot forge SSO,
 #     so it cannot reach the injected-credential path.
 cal.{$NODE_DOMAIN} {
 	import ring1
+
 	handle /oauth2/* {
 		reverse_proxy oauth2-proxy:4180
 	}
 
-	# Web UI paths: require SSO, then inject operator credential.
-	@webui path / /.web /.web/*
-	handle @webui {
+	# Browser requests carry the oauth2-proxy session cookie (_oauth2_proxy).
+	# Route ALL of them (web UI paths AND the SPA's /operator DAV calls)
+	# through SSO, then inject the operator Basic credential so radicale
+	# htpasswd accepts — no second login form, and the calendar loads.
+	@browser header Cookie *_oauth2_proxy=*
+	handle @browser {
 		import authed
-		# Only inject the operator credential when the SSO-authenticated user
-		# matches RADICALE_OPERATOR_EMAIL. Empty env var = single-operator
-		# mode (any valid SSO user maps to operator).
-		@operator expression `env("RADICALE_OPERATOR_EMAIL") == "" || http.request.header["X-Forwarded-Email"] == env("RADICALE_OPERATOR_EMAIL")`
-		handle @operator {
-			reverse_proxy radicale:5232 {
-				header_up Authorization "Basic {env.RADICALE_WEB_AUTH}"
-			}
-		}
-		# Non-operator SSO users pass through without injection — Radicale
-		# will return its own htpasswd login form.
-		handle {
-			reverse_proxy radicale:5232
+		reverse_proxy radicale:5232 {
+			header_up Authorization "Basic {env.RADICALE_WEB_AUTH}"
 		}
 	}
 
-	# Everything else (DAV sync, discovery, etc.) reaches Radicale directly.
-	# This preserves authenticated + unauthenticated CalDAV requests and
-	# Radicale's native Basic challenge-response flow (RFC 9110).
+	# No SSO cookie = a CalDAV client: pass through to radicale's native
+	# Basic challenge-response (discovery -> 401 -> retry works; no OIDC redirect).
 	handle {
 		reverse_proxy radicale:5232
 	}

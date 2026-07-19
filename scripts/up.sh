@@ -24,6 +24,7 @@ if [[ "$CHECK" == "--check" ]]; then
   echo "install validated; run without --check to bring the node up."
   exit 0
 fi
+# shellcheck disable=SC1091
 set -a; source .env; set +a
 
 # 2. the stack
@@ -32,7 +33,7 @@ docker compose up -d
 
 # 3. wait for the identity + git + llm plane to answer before bootstrapping them
 step "3/6 wait for core plane"
-wait_for() { local url="$1" name="$2" i; for i in $(seq 1 60); do
+wait_for() { local url="$1" name="$2"; for _ in $(seq 1 60); do
     curl -skf --resolve "${url#https://}:443:127.0.0.1" "$url" >/dev/null 2>&1 && { echo "   $name ready"; return 0; }
     sleep 2; done; echo "   WARN: $name not ready after 120s (continuing)"; }
 wait_for "https://git.${NODE_DOMAIN}/api/healthz"  forgejo
