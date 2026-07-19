@@ -80,6 +80,10 @@ services:
       ACME_EMAIL: ${ACME_EMAIL}
       # default TEST-NET-1 = matches nothing real; set real CIDRs in .env
       EXTRA_TRUSTED_RANGES: ${EXTRA_TRUSTED_RANGES:-192.0.2.0/32}
+      # Base64-encoded "operator:<RADICALE_TOOL_PASSWORD>" injected by the
+      # radicale route on SSO-authed browser sessions. Derived automatically
+      # by scripts/derive-secrets.sh; set in .env, never committed.
+      RADICALE_WEB_AUTH: ${RADICALE_WEB_AUTH:-}
     volumes:
       - ./caddy:/etc/caddy:ro     # Caddyfile + untracked local/*.caddy overrides
       # app fragments' route.caddy files; /etc/caddy is itself a ro mount, so

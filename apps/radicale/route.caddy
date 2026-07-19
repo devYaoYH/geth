@@ -1,21 +1,37 @@
 # radicale's door — imported by the root Caddyfile (import apps/*/route.caddy),
 # so ring guards and the (authed) snippet are already defined when this loads.
 # Ring 1 — calendar/contacts (enable with:  docker compose --profile apps up -d)
-# The browser door (Radicale's web UI) authenticates via the authshim ->
-# Pocket ID. DAV paths stay on the ring guard: CalDAV clients speak Basic
-# auth, not OIDC redirects — their credential plane is the app's business,
-# same split as LiteLLM (humans via SSO, API callers via their own keys).
+#
+# Auth split (Candidate C, issue #7): 
+#   - DAV clients (CalDAV sync) send their own Basic credentials → passed
+#     through directly; Radicale's htpasswd validates them.
+#   - Browser sessions carry the SSO cookie (forward_auth via oauth2-proxy).
+#     After SSO validates, Caddy injects the operator's Basic credential
+#     so Radicale's htpasswd accepts the session — the browser never sees
+#     the htpasswd login form.
+#   - An unauthenticated in-network caller hitting Radicale directly still
+#     gets 401 (htpasswd). An agent on the agents spur cannot forge SSO,
+#     so it cannot get the injected credential. 
 cal.{$NODE_DOMAIN} {
 	import ring1
 	handle /oauth2/* {
 		reverse_proxy oauth2-proxy:4180
 	}
-	@webui path / /.web /.web/*
-	handle @webui {
-		import authed
+
+	# CalDAV clients send their own Basic auth — pass through to Radicale's
+	# htpasswd as-is. Matches any request with an Authorization: Basic header.
+	@dav header Authorization Basic*
+	handle @dav {
 		reverse_proxy radicale:5232
 	}
+
+	# Everything else = browser (SSO cookie, no Basic auth). Require a valid
+	# SSO session first, then inject the operator credential so Radicale's
+	# htpasswd accepts the proxied request. The web UI never shows the form.
 	handle {
-		reverse_proxy radicale:5232
+		import authed
+		reverse_proxy radicale:5232 {
+			header_up Authorization "Basic {env.RADICALE_WEB_AUTH}"
+		}
 	}
 }

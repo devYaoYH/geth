@@ -16,6 +16,11 @@ filesystem_folder = /data/collections
 [web]
 # Lightweight built-in HTML UI on / ("internal" is the module name)
 type = internal
+# Tells Radicale's LoginScene to send the SSO cookie (credentials: omit is
+# the default, which strips it -> the form appears). With prefer_browser_login
+# the browser's auto-login probe carries the SSO session cookie forward,
+# allowing Caddy's injected Basic credential to authenticate seamlessly.
+prefer_browser_login = true
 
 [rights]
 # Enforce per-user ownership; rules file minted/owned at /data/rights
