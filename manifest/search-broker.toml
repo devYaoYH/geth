@@ -1,0 +1,31 @@
+# The node's single web-search capability. Agents discover this endpoint on the
+# internal registry, but need AGENT_SEARCH_TOKEN to call it.
+
+[app]
+name = "search-broker"
+version = "0.2.0"
+description = "Audited, capability-gated Exa web search for agent-dev"
+image = "sovereign-node/search-broker:local"
+ring = 0
+
+[service]
+port = 8080
+api = "openapi.yaml"
+mcp = "mcp-tools.json"
+health = "/healthz"
+
+[needs]
+# The caller owns AGENT_SEARCH_TOKEN. The Exa credential is cold-upstream
+# configuration held by the egress component, not an agent-visible credential.
+
+[resources]
+volumes = ["search_audit"]
+database = "none"
+
+[tests]
+command = "python3 tests/smoke.py"
+timeout_seconds = 60
+
+[lifecycle]
+backup = ["search_audit"]
+update_policy = "staged"

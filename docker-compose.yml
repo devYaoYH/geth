@@ -28,6 +28,8 @@ include:
     env_file: secrets/gog-bridge.env
   - path: apps/snake/compose.yaml
     env_file: secrets/snake.env
+  - path: apps/search-broker/compose.yaml
+    env_file: secrets/search-broker.env
 
 networks:
   edge:
@@ -49,6 +51,10 @@ networks:
     # has read your data still has nowhere to send it — upstream code arrives
     # via operator-run mirrors (scripts/mirror.sh), never direct fetch.
     internal: true
+  search-private:
+    # The broker and its egress companion meet here. Agents cannot join this
+    # network, and the egress companion is the only search service on edge.
+    internal: true
 
 volumes:
   caddy_data:
@@ -58,6 +64,7 @@ volumes:
   pocketid_data:
   agent_workspace:
   assistant_workspace:
+  search_audit:
 
 services:
   caddy:
@@ -278,6 +285,7 @@ services:
       ANTHROPIC_MODEL: ${AGENT_MODEL:-deepseek-flash}            # LiteLLM alias
       ANTHROPIC_SMALL_FAST_MODEL: ${AGENT_FAST_MODEL:-deepseek-flash}
       AGENT_FORGEJO_TOKEN: ${AGENT_FORGEJO_TOKEN:-}  # scope: node-config + apps/* + issues
+      AGENT_SEARCH_TOKEN: ${AGENT_SEARCH_TOKEN:-}    # revocable web-search capability; never an Exa key
       NODE_CONFIG_REPO: ${NODE_CONFIG_REPO:-}
       COORDINATION_REPO: ${COORDINATION_REPO:-}      # the shared notebook (skills/coordination)
     volumes:

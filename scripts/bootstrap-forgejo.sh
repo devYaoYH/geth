@@ -114,6 +114,7 @@ for LABEL in '{"name":"handoff","color":"#1f6feb","description":"for the next te
              '{"name":"blocked","color":"#d73a4a","description":"needs the operator: scope, secret, or merge"}' \
              '{"name":"digest","color":"#0e8a16","description":"ambient task output (morning digest etc.)"}' \
              '{"name":"observation","color":"#a2eeef","description":"something noticed, no action required yet"}' \
+             '{"name":"mirror-request","color":"#5319e7","description":"proposed upstream repo mirror; host runner requires operator digest approval"}' \
              '{"name":"task-request","color":"#fbca04","description":"run a tracked brief: title run: <name>; task-dispatcher.sh executes"}' \
              '{"name":"in-progress","color":"#fbca04","description":"claimed by an ephemeral tenant — dispatcher lock; do not reassign"}'; do
   NAME=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["name"])' "$LABEL")

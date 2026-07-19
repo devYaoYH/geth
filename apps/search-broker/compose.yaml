@@ -1,0 +1,74 @@
+# search-broker — a two-process capability boundary. The broker has the agent
+# plane but no edge network. The egress companion has edge but accepts requests
+# only from the broker's private network, and its code permits only api.exa.ai.
+# secrets/search-broker.env supplies EXA_API_KEY + SEARCH_EGRESS_TOKEN; the
+# caller capability stays in root .env as AGENT_SEARCH_TOKEN (the caller owns it).
+
+services:
+  search-audit-init:
+    profiles: [apps]
+    image: ${SEARCH_BROKER_IMAGE:-sovereign-node/search-broker:local}
+    container_name: search-audit-init
+    restart: "no"
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-ec"]
+    command: ["mkdir -p /audit && chown 10001:10001 /audit"]
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    cap_add: [CHOWN]
+    volumes:
+      - search_audit:/audit
+    networks: [search-private]
+
+  search-broker:
+    profiles: [apps]
+    image: ${SEARCH_BROKER_IMAGE:-sovereign-node/search-broker:local}
+    container_name: search-broker
+    restart: unless-stopped
+    depends_on:
+      search-audit-init:
+        condition: service_completed_successfully
+      search-egress:
+        condition: service_healthy
+    environment:
+      SEARCH_ROLE: broker
+      PORT: "8080"
+      AGENT_SEARCH_TOKEN: ${AGENT_SEARCH_TOKEN:-}
+      SEARCH_EGRESS_TOKEN: ${SEARCH_EGRESS_TOKEN:-}
+      SEARCH_CAPABILITY_ID: agent-dev
+      SEARCH_EGRESS_URL: http://search-egress:8081
+      AUDIT_LOG: /audit/search.jsonl
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    volumes:
+      - search_audit:/audit
+    networks: [agents, search-private]
+
+  search-egress:
+    profiles: [apps]
+    image: ${SEARCH_BROKER_IMAGE:-sovereign-node/search-broker:local}
+    container_name: search-egress
+    restart: unless-stopped
+    environment:
+      SEARCH_ROLE: egress
+      PORT: "8081"
+      EXA_API_KEY: ${EXA_API_KEY:-}
+      SEARCH_EGRESS_TOKEN: ${SEARCH_EGRESS_TOKEN:-}
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    networks: [search-private, edge]
+
+networks:
+  agents:
+    internal: true
+  edge:
+  search-private:
+    internal: true
+
+volumes:
+  search_audit:

@@ -27,6 +27,35 @@ Force a sync immediately:
     curl -X POST -H "Authorization: token $FORGEJO_TOKEN" \
       https://git.<domain>/api/v1/repos/mirrors/<name>/mirror-sync
 
+## Agent-requested mirrors: proposal, human approval, deterministic import
+
+An agent must not invoke `mirror.sh` itself. It files an issue in the private
+coordination repository with the `mirror-request` label and this exact shape:
+
+```text
+title: mirror: useful-package
+
+upstream: https://github.com/owner/useful-package.git
+name: useful-package
+interval: 24h0m0s
+rationale: why the node needs this upstream
+```
+
+Run `./scripts/mirror-dispatcher.sh` from cron (or once by hand). It validates
+the URL against `MIRROR_ALLOWED_HOSTS` (default: GitHub, GitLab, Codeberg),
+then posts a SHA-256 request digest. The operator inspects the issue and
+comments exactly `mirror: approve <digest>`. Only a comment authored by the
+operator account, matching the current request digest, permits the host-side
+runner to create the Forgejo pull mirror. Changing the issue body invalidates
+the approval. The issue becomes the durable paper trail: requester, rationale,
+operator approval, import output, and final `mirrors/<name>` location.
+
+Suggested cron schedule:
+
+```cron
+*/10 * * * * cd /path/to/sovereign-node && ./scripts/mirror-dispatcher.sh >> /var/log/node-mirror-dispatch.log 2>&1
+```
+
 ## Working on a cached repo (download-direction, merge locally)
 
 When you (or the agent) need to modify an app, fork the mirror into a
