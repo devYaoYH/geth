@@ -28,6 +28,11 @@
          point WatchPaths at that dir. -->
     <string>/REPLACE/with/abs/path/to/spool</string>
   </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!-- lets the pass clear consumed spool markers; install-launchd.sh fills it -->
+    <key>DISPATCH_SPOOL</key> <string>/REPLACE/with/abs/path/to/spool</string>
+  </dict>
   <key>StartInterval</key>    <integer>600</integer>   <!-- 10-min heartbeat fallback -->
   <key>StandardOutPath</key>  <string>/REPLACE/with/abs/path/to/geth/.task-dispatch/dispatch.log</string>
   <key>StandardErrorPath</key><string>/REPLACE/with/abs/path/to/geth/.task-dispatch/dispatch.log</string>

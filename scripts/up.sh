@@ -51,6 +51,9 @@ step "5/6 sso-setup"
 #    minted via admin API — no UI), start it, install the host dispatcher.
 step "6/6 dispatch (doorbell runner + host gate)"
 if [[ "${ENABLE_DISPATCH:-1}" == "1" ]]; then
+  # One spool path shared by the runner (writes) and the dispatcher (watches).
+  export DISPATCH_SPOOL="${DISPATCH_SPOOL:-$PWD/.task-dispatch/spool}"
+  mkdir -p "$DISPATCH_SPOOL"
   ./host/dispatch/register.sh
   docker compose -f host/dispatch/runner.compose.yml up -d
   # install the workflow into coordination (idempotent push of one file)

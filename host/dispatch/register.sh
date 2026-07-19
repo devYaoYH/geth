@@ -9,11 +9,18 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 set -a; source .env; set +a
 
-GIT="https://git.${NODE_DOMAIN}"
+# Token minting speaks to the door from the HOST (git.localhost resolves here
+# via curl --resolve). The runner itself reaches Forgejo INSIDE the node net,
+# where the door name doesn't exist — there it's http://forgejo:3000, on the
+# egress-less `agents` network (same one run-task.sh uses for the jail).
+DOOR="https://git.${NODE_DOMAIN}"
+INTERNAL="http://forgejo:3000"
+NET="sovereign-node_agents"
+
 # Repo-scoped registration token, minted with the operator admin credential.
 REG_TOKEN=$(curl -sk --resolve "git.${NODE_DOMAIN}:443:127.0.0.1" \
   -u "${FORGEJO_ADMIN_USER:-operator}:${FORGEJO_ADMIN_PASSWORD}" \
-  "$GIT/api/v1/repos/${COORDINATION_REPO}/actions/runners/registration-token" \
+  "$DOOR/api/v1/repos/${COORDINATION_REPO}/actions/runners/registration-token" \
   | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
 [[ -n "$REG_TOKEN" ]] || { echo "register: failed to mint registration token (check admin creds / Actions enabled)"; exit 1; }
 
@@ -23,16 +30,19 @@ if docker run --rm -v doorbell_runner_data:/data alpine test -f /data/.runner 2>
   exit 0
 fi
 
-# One-off registration container: writes /data/.runner into the volume the
-# daemon later reads. Labels match runner-config.yml (host executor).
-docker run --rm \
-  -e GITEA_INSTANCE_URL="$GIT" \
+# One-off registration container ON THE NODE NET so it can ping forgejo:3000.
+# Writes /data/.runner (the daemon reads it). Labels match runner-config.yml.
+docker run --rm --network "$NET" \
   -v doorbell_runner_data:/data \
   code.forgejo.org/forgejo/runner:6.0.1 \
   forgejo-runner register --no-interactive \
-    --instance "$GIT" \
+    --instance "$INTERNAL" \
     --token "$REG_TOKEN" \
     --name doorbell \
     --labels "doorbell:host"
 
-echo "registered (repo-scoped). daemon: docker compose -f host/dispatch/runner.compose.yml up -d"
+# The register container ran as root, so /data is root-owned; the daemon runs
+# unprivileged (uid 10002) and must read+rewrite .runner and .cache. Hand it over.
+docker run --rm -v doorbell_runner_data:/data alpine chown -R 10002:10002 /data
+
+echo "registered (repo-scoped, instance=$INTERNAL). daemon: docker compose -f host/dispatch/runner.compose.yml up -d"
