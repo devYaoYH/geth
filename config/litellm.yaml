@@ -48,6 +48,11 @@ litellm_settings:
   # Pairs with store_prompts_in_spend_logs below: captures the raw request
   # (the messages) alongside the response in each spend-log row.
   log_raw_request_response: true
+  # Group a caller's turns into one session. Forge sends no session id, so
+  # without this every agent turn is a separate "session" in the Logs UI.
+  # The hook derives session_id from the virtual key (run-task.sh mints one
+  # per run → one session per run). See config/litellm_hooks.py.
+  callbacks: litellm_hooks.session_by_key
 
 general_settings:
   # Virtual keys, spend tracking and budgets are stored in Postgres.

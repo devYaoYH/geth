@@ -128,6 +128,7 @@ services:
       PROXY_ADMIN_ID: ${LITELLM_PROXY_ADMIN_ID:-}
     volumes:
       - ./config/litellm.yaml:/app/config.yaml:ro
+      - ./config/litellm_hooks.py:/app/litellm_hooks.py:ro   # session-by-key callback (litellm_settings.callbacks)
     networks: [edge, litellm, agents, front]   # agents + front apps call inference here, by virtual key
 
   litellm-db:
