@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#141e3c"/>
+      <stop offset="0.55" stop-color="#31456e"/>
+      <stop offset="0.85" stop-color="#7a6a8e"/>
+      <stop offset="1" stop-color="#c78d7e"/>
+    </linearGradient>
+    <linearGradient id="sea" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8e7080"/>
+      <stop offset="0.25" stop-color="#42527a"/>
+      <stop offset="1" stop-color="#131b33"/>
+    </linearGradient>
+    <radialGradient id="horizon" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ffd9b0" stop-opacity="0.75"/>
+      <stop offset="1" stop-color="#ffd9b0" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="soft"><feGaussianBlur stdDeviation="10"/></filter>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#sky)"/>
+  <ellipse cx="960" cy="700" rx="720" ry="200" fill="url(#horizon)"/>
+  <rect y="700" width="1920" height="380" fill="url(#sea)"/>
+  <ellipse cx="960" cy="705" rx="960" ry="10" fill="#ffd9b0" opacity="0.4" filter="url(#soft)"/>
+  <g stroke="#ffd0a6" stroke-width="3" opacity="0.35" fill="none">
+    <path d="M660 760 Q 960 750 1260 760"/>
+    <path d="M520 810 Q 960 795 1400 810"/>
+    <path d="M380 880 Q 960 860 1540 880"/>
+  </g>
+  <g stroke="#aab8dd" stroke-width="3" opacity="0.2" fill="none">
+    <path d="M200 950 Q 960 925 1720 950"/>
+    <path d="M80 1020 Q 960 995 1840 1020"/>
+  </g>
+  <g fill="#e9ecf5" opacity="0.55">
+    <circle cx="300" cy="160" r="2.2"/><circle cx="520" cy="90" r="1.6"/><circle cx="760" cy="200" r="1.8"/>
+    <circle cx="1120" cy="120" r="2"/><circle cx="1380" cy="220" r="1.5"/><circle cx="1620" cy="100" r="2.2"/>
+    <circle cx="1780" cy="260" r="1.6"/><circle cx="160" cy="300" r="1.6"/><circle cx="980" cy="60" r="1.5"/>
+  </g>
+</svg>

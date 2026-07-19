@@ -53,10 +53,26 @@ echo "== seeding from templates/app-skeleton =="
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 cp -R templates/app-skeleton/. "$TMP/"
-# stamp the app name into every stub (portable BSD/GNU sed)
-grep -rl __APP_NAME__ "$TMP" | while read -r f; do
-  sed -i.bak "s/__APP_NAME__/$NAME/g" "$f" && rm -f "$f.bak"
-done
+# never seed a repo with the operator's local build junk
+find "$TMP" -name __pycache__ -type d -prune -exec rm -rf {} +
+# Stamp the app name into every stub (portable BSD/GNU sed).
+# -I skips binaries; the list is collected before the loop so freshly
+# written .bak files can't be picked up mid-walk. LC_ALL=C makes sed
+# byte-oriented, so non-ASCII prose in the stubs can't trip BSD sed's
+# "illegal byte sequence". A failure here must abort: pushing a repo
+# with unstamped __APP_NAME__ placeholders is worse than not pushing.
+STUBS=$(mktemp)
+trap 'rm -rf "$TMP" "$STUBS"' EXIT
+grep -rlI __APP_NAME__ "$TMP" > "$STUBS"
+while IFS= read -r f; do
+  [[ -n "$f" ]] || continue
+  LC_ALL=C sed -i.bak "s/__APP_NAME__/$NAME/g" "$f"
+  rm -f "$f.bak"
+done < "$STUBS"
+if grep -rqI __APP_NAME__ "$TMP"; then
+  echo "stamping failed — __APP_NAME__ still present in the seed; not pushing" >&2
+  exit 1
+fi
 
 git -C "$TMP" init -q -b main
 git -C "$TMP" -c user.name="$ADMIN" -c user.email="$ADMIN@node.invalid" \

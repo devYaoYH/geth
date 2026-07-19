@@ -1,23 +1,53 @@
 # Homepage settings — config-as-code; edit here, commit, redeploy.
-title: sovereign-node
+title: Geth · your sovereign cloud
 theme: dark
 color: slate
 headerStyle: clean
 statusStyle: dot
+iconStyle: theme
+fullWidth: true
+startUrl: /#home
 layout:
-  Node:
+  # Home: what your day looks like + the apps you actually live in.
+  Today:
+    tab: Home
     style: row
     columns: 3
+    icon: mdi-white-balance-sunny
   Apps:
+    tab: Home
     style: row
     columns: 4
-  Operating:
+    icon: mdi-view-grid-outline
+  # Workshop: where you review, assign, and unblock the build.
+  Waiting on you:
+    tab: Workshop
+    style: row
+    columns: 3
+    icon: mdi-source-pull
+  Engineering org:
+    tab: Workshop
     style: row
     columns: 4
-  Services (docker):
+    icon: mdi-hammer-wrench
+  Node & access:
+    tab: Operations
+    style: row
+    columns: 3
+    icon: mdi-server-network
+  Services (Docker):
+    tab: Operations
     style: row
     columns: 6
-    initiallyCollapsed: true
-  Tenants:
+    initiallyCollapsed: false
+    icon: mdi-docker
+  Tenant boundaries:
+    tab: Security
     style: row
     columns: 4
+    icon: mdi-account-lock-outline
+  Identity & audit:
+    tab: Security
+    style: row
+    columns: 3
+    icon: mdi-shield-check-outline

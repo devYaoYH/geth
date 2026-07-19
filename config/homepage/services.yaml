@@ -1,65 +1,95 @@
 # Services shown on the dashboard, with live health checks.
-# siteMonitor hits the container directly over the edge network; server/
+# siteMonitor hits the container directly over the edge/front network; server/
 # container entries pull live docker status via docker-proxy (read-only).
 # Widget credentials are HOMEPAGE_VAR_* env — always the weak ones: budgeted
-# tenant keys and read-only tokens, never master/operator credentials.
+# tenant keys, read-only tokens, never master/operator credentials.
 
-- Node:
-    - Git (Forgejo):
-        href: https://git.{{HOMEPAGE_VAR_NODE_DOMAIN}}
-        description: config-as-code source of truth · ring 1
-        server: sovereign-node
-        container: forgejo
-        siteMonitor: http://forgejo:3000
-    - LLM Gateway (LiteLLM):
-        href: https://llm.{{HOMEPAGE_VAR_NODE_DOMAIN}}
-        description: virtual keys, budgets, audit · ring 0
-        server: sovereign-node
-        container: litellm
-        siteMonitor: http://litellm:4000/health/liveliness
-    - Identity (Pocket ID):
-        href: https://auth.{{HOMEPAGE_VAR_NODE_DOMAIN}}
-        description: passkeys only, OIDC · the door itself
-        server: sovereign-node
-        container: pocket-id
-        siteMonitor: http://pocket-id:1411/healthz
+# --- Home: your day at a glance, then the apps you live in -------------------
+
+- Today:
+    - Your day:
+        id: today-calendar
+        icon: mdi-calendar-heart
+        href: https://cal.{{HOMEPAGE_VAR_NODE_DOMAIN}}
+        description: what's on your calendar today
+        widget:
+          type: customapi
+          url: http://radicale-toolshim:8100/events/today?limit=3
+          display: list
+          mappings:
+            - field: events.0.summary
+              label: next up
+            - field: events.1.summary
+              label: then
+    - Something to read:
+        id: today-reading
+        icon: mdi-lightbulb-on-outline
+        href: https://feeds.{{HOMEPAGE_VAR_NODE_DOMAIN}}/unread
+        description: freshest unread pick from your feeds
+        widget:
+          type: customapi
+          url: http://miniflux:8080/v1/entries?status=unread&limit=1&order=published_at&direction=desc
+          headers:
+            X-Auth-Token: {{HOMEPAGE_VAR_MINIFLUX_TOKEN}}
+          mappings:
+            - field: entries.0.title
+              label: worth a look
+            - field: total
+              label: unread
+              format: number
+    - Waiting on you:
+        id: today-attention
+        icon: mdi-bell-badge-outline
+        href: /#workshop
+        description: proposals and handoffs — head to the Workshop
+        widget:
+          type: customapi
+          url: http://forgejo:3000/api/v1/repos/{{HOMEPAGE_VAR_COORDINATION_REPO}}/issues?state=open&labels=handoff&limit=1
+          headers:
+            Authorization: token {{HOMEPAGE_VAR_DASH_GIT_TOKEN}}
+          display: list
+          mappings:
+            - field: 0.title
+              label: latest handoff
 
 - Apps:
-    - Calendar (Radicale):
+    - Calendar:
+        icon: radicale.png
         href: https://cal.{{HOMEPAGE_VAR_NODE_DOMAIN}}
-        description: CalDAV/CardDAV · ring 1
+        description: calendar & contacts
         server: sovereign-node
         container: radicale
         siteMonitor: http://radicale:5232
-    - Notes (Memos):
+    - Notes:
+        icon: memos.png
         href: https://notes.{{HOMEPAGE_VAR_NODE_DOMAIN}}
-        description: the Keep-clone · ring 1 · mirrors/memos
+        description: capture ideas
         server: sovereign-node
         container: memos
         siteMonitor: http://memos:5230/healthz
-    - Feeds (Miniflux):
+    - Feeds:
+        icon: miniflux.png
         href: https://feeds.{{HOMEPAGE_VAR_NODE_DOMAIN}}
-        description: pull, not push · ring 1 · the digester reads here
+        description: calm reading
         server: sovereign-node
         container: miniflux
         siteMonitor: http://miniflux:8080/healthcheck
-    - Game (Snake):
-        href: https://game.{{HOMEPAGE_VAR_NODE_DOMAIN}}
-        description: canvas snake game · ring 1
-        server: sovereign-node
-        container: snake
-        siteMonitor: http://snake:8080/
-    - Chat (assistant):
+    - Assistant:
+        icon: open-webui.png
         href: https://chat.{{HOMEPAGE_VAR_NODE_DOMAIN}}
-        description: the assistant's brain in a browser · spends its budget · ring 0
+        description: full chat
         server: sovereign-node
         container: open-webui
         siteMonitor: http://open-webui:8080/health
 
-- Operating:
-    - Agent PRs (the approval moment):
+# --- Workshop: review, assign, unblock — where the house gets built ----------
+
+- Waiting on you:
+    - Proposals to approve:
+        id: proposals
+        icon: mdi-source-pull
         href: https://git.{{HOMEPAGE_VAR_NODE_DOMAIN}}/{{HOMEPAGE_VAR_NODE_CONFIG_REPO}}/pulls
-        description: merge is authorization — everything else is a proposal
+        description: your explicit approval is the release gate
         widget:
           type: customapi
           url: http://forgejo:3000/api/v1/repos/{{HOMEPAGE_VAR_NODE_CONFIG_REPO}}/pulls?state=open
@@ -68,13 +98,38 @@
           display: list
           mappings:
             - field: 0.title
-              label: newest open PR
-    - Coordination (the agents' notebook):
+              label: newest proposal
+    - Agent handoffs:
+        id: handoffs
+        icon: mdi-inbox-arrow-down-outline
         href: https://git.{{HOMEPAGE_VAR_NODE_DOMAIN}}/{{HOMEPAGE_VAR_COORDINATION_REPO}}/issues
-        description: handoffs, blocks, digests — what the tenants left for you
-    - Spend · agent-dev:
+        description: blocks, decisions, and finished work waiting for you
+        widget:
+          type: customapi
+          url: http://forgejo:3000/api/v1/repos/{{HOMEPAGE_VAR_COORDINATION_REPO}}/issues?state=open&labels=handoff
+          headers:
+            Authorization: token {{HOMEPAGE_VAR_DASH_GIT_TOKEN}}
+          display: list
+          mappings:
+            - field: 0.title
+              label: latest handoff
+    - Ask your engineering org:
+        icon: mdi-message-processing-outline
+        href: https://chat.{{HOMEPAGE_VAR_NODE_DOMAIN}}
+        description: describe what you want built, changed, or investigated
+        server: sovereign-node
+        container: open-webui
+        siteMonitor: http://open-webui:8080/health
+
+- Engineering org:
+    - Agent notebook:
+        icon: mdi-notebook-outline
+        href: https://git.{{HOMEPAGE_VAR_NODE_DOMAIN}}/{{HOMEPAGE_VAR_COORDINATION_REPO}}/issues
+        description: handoffs, blocks, observations, task digests
+    - Engineering spend:
+        icon: mdi-brain
         href: https://llm.{{HOMEPAGE_VAR_NODE_DOMAIN}}/ui
-        description: resident dev-agent, monthly budget
+        description: resident engineering agent's monthly allowance
         widget:
           type: customapi
           url: http://litellm:4000/key/info
@@ -87,9 +142,10 @@
             - field: info.max_budget
               label: budget $
               format: float
-    - Spend · assistant:
+    - Assistant spend:
+        icon: mdi-brain
         href: https://llm.{{HOMEPAGE_VAR_NODE_DOMAIN}}/ui
-        description: front-door assistant + chat surface
+        description: your front-door assistant's monthly allowance
         widget:
           type: customapi
           url: http://litellm:4000/key/info
@@ -102,9 +158,91 @@
             - field: info.max_budget
               label: budget $
               format: float
-    - Auth events (Pocket ID):
+    - Mirrors:
+        icon: mdi-source-repository-multiple
+        href: https://git.{{HOMEPAGE_VAR_NODE_DOMAIN}}/mirrors
+        description: upstream software held in your own forge
+
+# --- Operations & Security: unchanged planes ---------------------------------
+
+- Node & access:
+    - Forgejo:
+        icon: forgejo.png
+        href: https://git.{{HOMEPAGE_VAR_NODE_DOMAIN}}
+        description: your source of truth and change ledger
+        server: sovereign-node
+        container: forgejo
+        siteMonitor: http://forgejo:3000
+    - LiteLLM gateway:
+        icon: mdi-brain
+        href: https://llm.{{HOMEPAGE_VAR_NODE_DOMAIN}}
+        description: model access, budgets, and request audit
+        server: sovereign-node
+        container: litellm
+        siteMonitor: http://litellm:4000/health/liveliness
+    - Pocket ID:
+        icon: pocket-id.png
         href: https://auth.{{HOMEPAGE_VAR_NODE_DOMAIN}}/settings/admin
-        description: latest identity events at the door
+        description: passkeys, people, and OIDC clients
+        server: sovereign-node
+        container: pocket-id
+        siteMonitor: http://pocket-id:1411/healthz
+
+- Services (Docker):
+    - registry:
+        icon: mdi-format-list-bulleted-square
+        description: service discovery · ring 0
+        server: sovereign-node
+        container: registry
+    - homepage:
+        icon: mdi-home-heart
+        description: this dashboard
+        server: sovereign-node
+        container: homepage
+    - caddy:
+        icon: caddy.png
+        description: the only exposed thing
+        server: sovereign-node
+        container: caddy
+    - litellm-db:
+        icon: postgresql.png
+        description: LiteLLM's postgres · private network
+        server: sovereign-node
+        container: litellm-db
+    - miniflux-db:
+        icon: postgresql.png
+        description: Miniflux's postgres · private network
+        server: sovereign-node
+        container: miniflux-db
+    - docker-proxy:
+        icon: docker.png
+        description: read-only container status for this page
+        server: sovereign-node
+        container: docker-proxy
+
+- Tenant boundaries:
+    - agent-dev (resident):
+        icon: mdi-robot-outline
+        description: engineering tenant · $25/mo · proposes through PRs only
+    - assistant (front door):
+        icon: mdi-message-processing-outline
+        description: conversational tenant · reads and files issues; no deploy path
+    - ephemeral tasks:
+        icon: mdi-timer-sand
+        description: short-lived runs · per-task key, budget, expiry, and artifact
+    - operator (you):
+        icon: mdi-account-crown-outline
+        description: ring 0 · only you merge, deploy, mint, and change policy
+
+- Identity & audit:
+    - Identity admin:
+        icon: pocket-id.png
+        href: https://auth.{{HOMEPAGE_VAR_NODE_DOMAIN}}/settings/admin
+        description: manage passkeys, people, and OIDC clients
+    - Security events:
+        icon: mdi-shield-alert-outline
+        href: https://auth.{{HOMEPAGE_VAR_NODE_DOMAIN}}/settings/admin
+        description: latest event at the identity door
         widget:
           type: customapi
           url: http://pocket-id:1411/api/audit-logs?pagination%5Blimit%5D=1&sort%5Bcolumn%5D=createdAt&sort%5Bdirection%5D=desc
@@ -116,45 +254,7 @@
             - field: data.0.createdAt
               label: when
               format: relativeDate
-    - Users & OIDC clients:
-        href: https://auth.{{HOMEPAGE_VAR_NODE_DOMAIN}}/settings/admin
-        description: Pocket ID admin — invite via scripts/invite.sh
-    - Mirrors:
-        href: https://git.{{HOMEPAGE_VAR_NODE_DOMAIN}}/mirrors
-        description: cached upstreams — scripts/mirror.sh adds one
-
-- Services (docker):
-    - registry:
-        description: service discovery · ring 0
-        server: sovereign-node
-        container: registry
-    - homepage:
-        description: this dashboard
-        server: sovereign-node
-        container: homepage
-    - caddy:
-        description: the only exposed thing
-        server: sovereign-node
-        container: caddy
-    - litellm-db:
-        description: LiteLLM's postgres · private network
-        server: sovereign-node
-        container: litellm-db
-    - miniflux-db:
-        description: Miniflux's postgres · private network
-        server: sovereign-node
-        container: miniflux-db
-    - docker-proxy:
-        description: read-only container status for this page
-        server: sovereign-node
-        container: docker-proxy
-
-- Tenants:
-    - agent-dev (resident):
-        description: Claude Code jail · $25/mo · writes via PR only · agents net, no egress
-    - assistant (front door):
-        description: conversational · reads + issues only, no PR path · hands off to agent-dev
-    - ephemeral tasks:
-        description: run-task.sh · per-run key, budget + expiry · artifact = a coordination issue
-    - operator (you):
-        description: ring 0 — merges, deploys, mints; the human in every loop
+    - Access policy:
+        icon: mdi-shield-lock-outline
+        href: https://git.{{HOMEPAGE_VAR_NODE_DOMAIN}}/{{HOMEPAGE_VAR_NODE_CONFIG_REPO}}
+        description: inspect the versioned rules that define every boundary

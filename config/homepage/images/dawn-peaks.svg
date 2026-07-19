@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1b2340"/>
+      <stop offset="0.45" stop-color="#4a3f66"/>
+      <stop offset="0.72" stop-color="#a06a6d"/>
+      <stop offset="1" stop-color="#e8a87c"/>
+    </linearGradient>
+    <radialGradient id="sun" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ffe9c4" stop-opacity="0.95"/>
+      <stop offset="0.4" stop-color="#ffcf9a" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#ffcf9a" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="m1" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6e5a78"/><stop offset="1" stop-color="#584a6a"/>
+    </linearGradient>
+    <linearGradient id="m2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#463d5e"/><stop offset="1" stop-color="#38324f"/>
+    </linearGradient>
+    <linearGradient id="m3" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2b2745"/><stop offset="1" stop-color="#201d36"/>
+    </linearGradient>
+    <linearGradient id="haze" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e8a87c" stop-opacity="0"/>
+      <stop offset="1" stop-color="#e8a87c" stop-opacity="0.28"/>
+    </linearGradient>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#sky)"/>
+  <circle cx="1250" cy="720" r="420" fill="url(#sun)"/>
+  <circle cx="1250" cy="720" r="58" fill="#ffe9c4" opacity="0.9"/>
+  <path d="M0 640 L260 430 L420 560 L640 380 L840 600 L1010 470 L1240 640 L1490 440 L1720 610 L1920 500 L1920 1080 L0 1080 Z" fill="url(#m1)" opacity="0.85"/>
+  <rect y="620" width="1920" height="200" fill="url(#haze)"/>
+  <path d="M0 760 L200 600 L430 730 L660 560 L900 740 L1150 620 L1420 780 L1650 640 L1920 760 L1920 1080 L0 1080 Z" fill="url(#m2)"/>
+  <path d="M0 900 L240 780 L520 880 L800 760 L1100 900 L1380 800 L1660 910 L1920 830 L1920 1080 L0 1080 Z" fill="url(#m3)"/>
+</svg>

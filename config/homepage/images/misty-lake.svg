@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#22323a"/>
+      <stop offset="0.55" stop-color="#3a5a5c"/>
+      <stop offset="1" stop-color="#7ba492"/>
+    </linearGradient>
+    <linearGradient id="water" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6f9c8b"/>
+      <stop offset="1" stop-color="#283c3f"/>
+    </linearGradient>
+    <linearGradient id="ridge" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#33504f"/><stop offset="1" stop-color="#274041"/>
+    </linearGradient>
+    <linearGradient id="ridge2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1d3335"/><stop offset="1" stop-color="#16282b"/>
+    </linearGradient>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="18"/>
+    </filter>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#sky)"/>
+  <ellipse cx="960" cy="560" rx="900" ry="180" fill="#cfe3d4" opacity="0.22" filter="url(#soft)"/>
+  <path d="M0 480 L180 360 L360 470 L560 340 L760 480 L980 380 L1200 490 L1440 360 L1680 470 L1920 400 L1920 700 L0 700 Z" fill="url(#ridge)" opacity="0.9"/>
+  <path d="M0 560 L240 460 L480 570 L720 470 L980 580 L1240 480 L1500 580 L1740 500 L1920 570 L1920 760 L0 760 Z" fill="url(#ridge2)"/>
+  <rect y="640" width="1920" height="440" fill="url(#water)"/>
+  <ellipse cx="960" cy="660" rx="960" ry="60" fill="#cfe3d4" opacity="0.18" filter="url(#soft)"/>
+  <g fill="#0f1e21" opacity="0.85">
+    <path d="M120 640 L150 520 L180 640 Z"/><path d="M170 640 L205 490 L240 640 Z"/>
+    <path d="M225 640 L255 540 L285 640 Z"/><path d="M1660 640 L1695 500 L1730 640 Z"/>
+    <path d="M1715 640 L1745 545 L1775 640 Z"/><path d="M1770 640 L1805 490 L1840 640 Z"/>
+  </g>
+  <g fill="#0f1e21" opacity="0.3" transform="translate(0,1300) scale(1,-1)">
+    <path d="M120 640 L150 520 L180 640 Z"/><path d="M170 640 L205 490 L240 640 Z"/>
+    <path d="M1715 640 L1745 545 L1775 640 Z"/><path d="M1770 640 L1805 490 L1840 640 Z"/>
+  </g>
+  <rect y="620" width="1920" height="120" fill="#cfe3d4" opacity="0.08"/>
+</svg>

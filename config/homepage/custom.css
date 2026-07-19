@@ -1,0 +1,261 @@
+/* Geth home: calm scenery behind, glass surfaces in front, one floating
+   composer. Quiet at rest, vivid when there is an action to take. */
+:root {
+  --geth-surface: rgba(13, 20, 34, 0.58);
+  --geth-border: rgba(148, 163, 184, 0.16);
+  --geth-accent: #67e8c3;
+}
+
+/* --- rotating scenery backdrop (layers injected by custom.js) -------------- */
+
+#__next, #page_wrapper, body, html { background: transparent !important; }
+
+.geth-bg {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+}
+
+.geth-bg__layer {
+  position: absolute;
+  inset: 0;
+  background-position: center;
+  background-size: cover;
+  opacity: 0;
+  transition: opacity 2400ms ease-in-out;
+}
+
+.geth-bg__layer.is-visible { opacity: 1; }
+
+/* Scrim: keeps text readable over any scene, heavier toward the bottom
+   where the composer floats. */
+.geth-bg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(4, 8, 18, 0.44) 0%,
+    rgba(4, 8, 18, 0.28) 34%,
+    rgba(4, 8, 18, 0.38) 70%,
+    rgba(4, 8, 18, 0.62) 100%
+  );
+}
+
+#information-widgets {
+  max-width: 1440px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Room for the floating composer while it is shown (Home tab only). */
+html.geth-chatbar-open #page_container { padding-bottom: 11rem; }
+
+/* --- floating composer ----------------------------------------------------- */
+
+#geth-chatbar {
+  position: fixed;
+  left: 50%;
+  bottom: clamp(2.25rem, 7vh, 4.5rem);
+  transform: translateX(-50%);
+  z-index: 40;
+  width: min(44rem, calc(100vw - 2rem));
+}
+
+#geth-chatbar[hidden] { display: none; }
+
+.geth-chatbar__composer {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.5rem 0.55rem 0.5rem 1.1rem;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 1.4rem;
+  background: rgba(9, 14, 26, 0.66);
+  backdrop-filter: blur(18px) saturate(1.2);
+  -webkit-backdrop-filter: blur(18px) saturate(1.2);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.06), 0 18px 48px rgba(2, 6, 23, 0.5);
+  transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+
+.geth-chatbar__composer:focus-within {
+  border-color: rgba(103, 232, 195, 0.68);
+  background: rgba(9, 14, 26, 0.8);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.07), 0 0 0 3px rgba(45, 212, 191, 0.12), 0 20px 52px rgba(2, 6, 23, 0.55);
+}
+
+.geth-chatbar__composer textarea {
+  box-sizing: border-box;
+  min-height: 2.8rem;
+  max-height: 9rem;
+  flex: 1;
+  resize: none;
+  overflow-y: auto;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #f8fafc;
+  font: inherit;
+  line-height: 1.45;
+  padding: 0.66rem 0;
+}
+
+.geth-chatbar__composer textarea::placeholder { color: #94a3b8; opacity: 1; }
+
+.geth-chatbar__composer select {
+  align-self: center;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 0.68rem;
+  padding: 0.42rem 0.5rem;
+  background: rgba(15, 23, 42, 0.55);
+  color: #cbd5e1;
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: border-color 160ms ease, color 160ms ease;
+}
+
+.geth-chatbar__composer select:hover,
+.geth-chatbar__composer select:focus-visible {
+  border-color: rgba(103, 232, 195, 0.5);
+  color: #f8fafc;
+  outline: 0;
+}
+
+.geth-chatbar__composer select option { background: #0f172a; color: #f8fafc; }
+
+.geth-chatbar__composer button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-height: 2.45rem;
+  border: 1px solid rgba(103, 232, 195, 0.6);
+  border-radius: 1rem;
+  padding: 0.45rem 0.82rem;
+  background: rgba(20, 184, 166, 0.22);
+  color: #ecfdf5;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 650;
+  white-space: nowrap;
+  transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.geth-chatbar__composer button:hover:not(:disabled) {
+  border-color: var(--geth-accent);
+  background: rgba(20, 184, 166, 0.32);
+  transform: translateY(-1px);
+}
+
+.geth-chatbar__composer button:disabled { cursor: wait; opacity: 0.8; }
+
+.geth-chatbar__spinner {
+  display: none;
+  width: 0.86rem;
+  height: 0.86rem;
+  border: 2px solid rgba(236, 253, 245, 0.32);
+  border-top-color: #ecfdf5;
+  border-radius: 50%;
+  animation: geth-spin 700ms linear infinite;
+}
+
+.is-sending .geth-chatbar__spinner { display: block; }
+
+.geth-chatbar__hint {
+  margin: 0.45rem 0 0;
+  text-align: center;
+  color: rgba(203, 213, 225, 0.75);
+  font-size: 0.72rem;
+  text-shadow: 0 1px 8px rgba(2, 6, 23, 0.8);
+}
+
+.geth-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@keyframes geth-spin { to { transform: rotate(360deg); } }
+
+/* --- glass cards over scenery ----------------------------------------------
+   Style the INNER .service-card, not the outer li: grid rows stretch the li
+   to the tallest sibling, so any li background bleeds out below shorter
+   cards as a stray dark strip. The li stays a transparent hover handle. */
+
+.service {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  transition: transform 160ms ease;
+}
+
+.service:hover { transform: translateY(-2px); }
+
+.service .service-card {
+  height: calc(100% - 0.5rem);   /* fill the stretched row, minus its mb-2 */
+  border: 1px solid var(--geth-border);
+  border-radius: 0.8rem;
+  background: var(--geth-surface);
+  backdrop-filter: blur(14px) saturate(1.15);
+  -webkit-backdrop-filter: blur(14px) saturate(1.15);
+  box-shadow: 0 8px 24px rgba(2, 6, 23, 0.22);
+  transition: border-color 160ms ease, background 160ms ease;
+}
+
+.service:hover .service-card {
+  border-color: rgba(103, 232, 195, 0.42);
+  background: rgba(20, 30, 48, 0.72);
+}
+
+.service-name { font-weight: 600; }
+.service-description { line-height: 1.35; }
+
+/* Apps on Home: a fluid grid of square, icon-forward tiles (group tagged by
+   custom.js as .geth-tile-group). Card DOM: .service-card > .service-title
+   (icon anchor + name anchor in a row) — restack it into a centred column. */
+.geth-tile-group .services-list {
+  /* wide enough that the expanded CPU + MEM stat blocks fit side by side */
+  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)) !important;
+  gap: 0.8rem !important;
+}
+.geth-tile-group .service .service-card {
+  aspect-ratio: 1 / 1;
+  height: auto;
+  margin-bottom: 0;
+}
+.geth-tile-group .service-title {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  height: 100%;
+  padding: 0.6rem;
+}
+.geth-tile-group .service-icon { width: auto; }
+.geth-tile-group .service-icon img { width: 48px !important; height: 48px !important; }
+.geth-tile-group .service-title-text { flex: none; }
+.geth-tile-group .service-name { text-align: center; padding: 0; font-size: 0.92rem; }
+.geth-tile-group .service-description { display: none; }
+
+/* One dot per tile: keep only the container-stats button (clicking it opens
+   the stats panel); the separate site-monitor dot is redundant here. The
+   stats panel itself shows just CPU + MEM — blocks 3+ are RX/TX. */
+.geth-tile-group .service-site-monitor { display: none; }
+.geth-tile-group .service-container .service-block:nth-child(n+3) { display: none; }
+
+@media (max-width: 640px) {
+  #geth-chatbar { bottom: 1.25rem; }
+  .geth-chatbar__composer { align-items: stretch; flex-direction: column; padding: 0.55rem; }
+  .geth-chatbar__composer textarea { padding: 0.45rem; }
+  .geth-chatbar__composer button { width: 100%; }
+  html.geth-chatbar-open #page_container { padding-bottom: 13rem; }
+}
