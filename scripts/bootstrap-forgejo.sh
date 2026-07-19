@@ -100,17 +100,24 @@ else
 fi
 API -X PUT "https://git.localhost/api/v1/repos/$ADMIN/coordination/collaborators/agent-dev" \
     -d '{"permission":"write"}' >/dev/null || true
-# Standing labels: the note taxonomy agents file under (idempotent; 409 = exists).
+# Standing labels: the note taxonomy agents file under. TRUE idempotency —
+# Forgejo does NOT reject a duplicate label name (no 409), so a blind re-POST
+# triplicates them (it did). Create only names that don't already exist.
 # Seeded with the AGENT token: labels need write:issue, which the operator's
 # node-ops token (repo/org/user scopes) deliberately lacks. $TOKEN when step 3
 # just minted it, .env's AGENT_FORGEJO_TOKEN on re-runs.
 AAPI() { /usr/bin/curl -sk --resolve "git.localhost:443:127.0.0.1" \
         -H "Authorization: token ${TOKEN:-$AGENT_FORGEJO_TOKEN}" -H "Content-Type: application/json" "$@"; }
+EXISTING=$(AAPI "https://git.localhost/api/v1/repos/$ADMIN/coordination/labels?limit=100" \
+           | python3 -c 'import json,sys; print("\n".join(l["name"] for l in json.load(sys.stdin)))' 2>/dev/null || true)
 for LABEL in '{"name":"handoff","color":"#1f6feb","description":"for the next tenant: state + next step"}' \
              '{"name":"blocked","color":"#d73a4a","description":"needs the operator: scope, secret, or merge"}' \
              '{"name":"digest","color":"#0e8a16","description":"ambient task output (morning digest etc.)"}' \
              '{"name":"observation","color":"#a2eeef","description":"something noticed, no action required yet"}' \
-             '{"name":"task-request","color":"#fbca04","description":"run a tracked brief: title run: <name>; task-dispatcher.sh executes"}'; do
+             '{"name":"task-request","color":"#fbca04","description":"run a tracked brief: title run: <name>; task-dispatcher.sh executes"}' \
+             '{"name":"in-progress","color":"#fbca04","description":"claimed by an ephemeral tenant — dispatcher lock; do not reassign"}'; do
+  NAME=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["name"])' "$LABEL")
+  if grep -qx "$NAME" <<<"$EXISTING"; then continue; fi
   AAPI -X POST "https://git.localhost/api/v1/repos/$ADMIN/coordination/labels" -d "$LABEL" >/dev/null || true
 done
 saveenv COORDINATION_REPO "$ADMIN/coordination"
