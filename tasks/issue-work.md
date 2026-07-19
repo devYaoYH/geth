@@ -1,7 +1,7 @@
 ---
 task: issue-work
-model: claude-sonnet     # real dev work — not the cheap ambient default
-harness: claude          # PR-writing loop; forge stays opt-in per drill
+model: deepseek-flash    # agent-dev default: cheap first; bump per-issue if quality lags
+harness: forge           # agent-dev default harness (forgecode); run-task gives it a pty
 budget_usd: 2.00         # per-issue ceiling on the ephemeral key
 expires: 3h
 env: [AGENT_FORGEJO_TOKEN, NODE_CONFIG_REPO, COORDINATION_REPO]

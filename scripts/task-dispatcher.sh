@@ -128,6 +128,14 @@ for i in json.load(sys.stdin):
       continue
     fi
 
+    # Retry cooldown: a prior launch that FAILED released the claim and stamped
+    # here. Don't relaunch within the hour — bounds hot-looping on a persistent
+    # failure (bad PATH, key-mint down) while still allowing eventual retry.
+    FSTAMP=".task-dispatch/issue-$NUM"
+    if [[ -f "$FSTAMP" ]] && [[ $(( $(date +%s) - $(stat -f %m "$FSTAMP" 2>/dev/null || stat -c %Y "$FSTAMP") )) -lt 3600 ]]; then
+      echo "[assign] #$NUM deferred — a launch failed within the hour; cooling down"; continue
+    fi
+
     if [[ "$DRY" == "--dry-run" ]]; then
       echo "[assign] #$NUM WOULD LAUNCH issue-work (operator-authorized, unclaimed)"
       continue
@@ -139,13 +147,28 @@ for i in json.load(sys.stdin):
     echo "[assign] #$NUM claimed (in-progress); launching issue-work"
     say "$NUM" "Dispatched to an ephemeral \`$AGENT_LOGIN\` tenant (operator-authorized). Claimed with \`in-progress\`. Deliverable will be a node-config PR + a comment here; if I'm blocked I'll say so."
 
-    OUT=$(./scripts/run-task.sh tasks/issue-work.md --issue "$NUM" 2>&1 | tail -15 || true)
-    say "$NUM" "Ephemeral run finished. Tail:
+    if OUT=$(./scripts/run-task.sh tasks/issue-work.md --issue "$NUM" 2>&1); then
+      RC=0; else RC=$?; fi
+    OUT=$(tail -15 <<<"$OUT")
+    if [[ "$RC" -eq 0 ]]; then
+      say "$NUM" "Ephemeral run finished. Tail:
 
 \`\`\`
 $OUT
 \`\`\`
-If a PR was opened it's linked above; if I hit a wall the comment says BLOCKED. The \`in-progress\` label stays until the work lands or the operator clears it."
+If a PR was opened it's linked above; if I hit a wall the comment says BLOCKED. \`in-progress\` stays until the work lands or the operator clears it."
+    else
+      # Launch/agent FAILED — release the claim so the issue isn't stranded, and
+      # stamp the cooldown so we don't relaunch on the very next tick.
+      touch "$FSTAMP"
+      A -X DELETE "$GAPI/issues/$NUM/labels/$INPROG_ID" >/dev/null || true
+      say "$NUM" "Dispatch FAILED (exit $RC) — released \`in-progress\` so this can be retried (1h cooldown). Tail:
+
+\`\`\`
+$OUT
+\`\`\`
+Reassign after fixing, or wait for the cooldown to lapse."
+    fi
   done
 fi
 

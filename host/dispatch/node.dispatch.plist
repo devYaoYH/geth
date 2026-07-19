@@ -32,6 +32,10 @@
   <dict>
     <!-- lets the pass clear consumed spool markers; install-launchd.sh fills it -->
     <key>DISPATCH_SPOOL</key> <string>/REPLACE/with/abs/path/to/spool</string>
+    <!-- launchd's default PATH lacks docker (/usr/local/bin on Docker Desktop);
+         run-task.sh shells out to `docker run`. install-launchd.sh sets this to
+         include the real docker dir it detects. -->
+    <key>PATH</key> <string>/REPLACE/with/docker/dir:/usr/bin:/bin:/usr/sbin:/sbin</string>
   </dict>
   <key>StartInterval</key>    <integer>600</integer>   <!-- 10-min heartbeat fallback -->
   <key>StandardOutPath</key>  <string>/REPLACE/with/abs/path/to/geth/.task-dispatch/dispatch.log</string>
