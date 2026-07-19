@@ -37,7 +37,7 @@ services:
       OAUTH2_CLIENT_SECRET: ${MINIFLUX_OIDC_CLIENT_SECRET:-}
       OAUTH2_OIDC_DISCOVERY_ENDPOINT: https://auth.${NODE_DOMAIN}
       OAUTH2_REDIRECT_URL: https://feeds.${NODE_DOMAIN}/oauth2/oidc/callback
-      OAUTH2_USER_CREATION: "0"        # invited humans only, same stance as Forgejo
+      OAUTH2_USER_CREATION: "1"        # any trusted Pocket ID user gets a Miniflux account
     networks: [edge, feeds, agents]
 
   miniflux-db:
