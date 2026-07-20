@@ -60,6 +60,13 @@
         server: sovereign-node
         container: radicale
         siteMonitor: http://radicale:5232
+    - Calino:
+        icon: mdi-calendar-text
+        href: https://calino.{{HOMEPAGE_VAR_NODE_DOMAIN}}
+        description: calendar web UI
+        server: sovereign-node
+        container: calino
+        siteMonitor: http://calino:8080/
     - Notes:
         icon: memos.png
         href: https://notes.{{HOMEPAGE_VAR_NODE_DOMAIN}}
@@ -74,6 +81,13 @@
         server: sovereign-node
         container: miniflux
         siteMonitor: http://miniflux:8080/healthcheck
+    - The Floor:
+        icon: mdi-factory
+        href: https://floor.{{HOMEPAGE_VAR_NODE_DOMAIN}}
+        description: watch your node at work — every service a room, every data flow a worker
+        server: sovereign-node
+        container: floor
+        siteMonitor: http://floor:8080/healthz
     - Snake:
         icon: mdi-gamepad-variant-outline
         id: snake-tile
@@ -195,6 +209,12 @@
         server: sovereign-node
         container: pocket-id
         siteMonitor: http://pocket-id:1411/healthz
+    - Agent web search audit:
+        icon: mdi-magnify-scan
+        href: https://search.{{HOMEPAGE_VAR_NODE_DOMAIN}}
+        description: operator dashboard for logged Exa searches
+        server: sovereign-node
+        container: search-broker
 
 - Services (Docker):
     - registry:
@@ -243,12 +263,6 @@
         description: ring 0 · only you merge, deploy, mint, and change policy
 
 - Identity & audit:
-    - Agent web search audit:
-        icon: mdi-magnify-scan
-        href: https://git.{{HOMEPAGE_VAR_NODE_DOMAIN}}/{{HOMEPAGE_VAR_NODE_CONFIG_REPO}}/src/branch/main/docs/SEARCH.md
-        description: Exa broker · persistent, protected JSONL audit trail
-        server: sovereign-node
-        container: search-broker
     - Identity admin:
         icon: pocket-id.png
         href: https://auth.{{HOMEPAGE_VAR_NODE_DOMAIN}}/settings/admin

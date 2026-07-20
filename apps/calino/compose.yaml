@@ -1,0 +1,27 @@
+# calino — an app fragment, merged into the node stack by the root
+# docker-compose.yml `include:` list. This file owns everything calino:
+# service, the networks it joins. Shared networks re-declare the root's
+# attributes exactly; compose merges.
+#
+# Source: mirrors/calino (local mirror of github.com/Ivan-Malinovski/calino),
+# MIT license, v0.22.7, pinned to commit 8e21e96ec842a426e714f78ff1f9cfa3e297c03b. The image is built
+# by scripts/build-mirrored.sh (triggered by deploy.sh); this fragment only
+# declares the resulting tag.
+
+services:
+  # --- apps ring 1: calino ---------------------------------------------------
+  # A CalDAV web client (React/TypeScript) that connects to the Radicale CalDAV
+  # server. Credentials are entered by the user in the browser and stored in
+  # localStorage (never on the wire beyond the CalDAV fetch itself). The DAV
+  # proxy on the calino route (/dav/* -> radicale:5232) avoids CORS entirely.
+  # Built from the upstream mirror by scripts/build-mirrored.sh at deploy time.
+  calino:
+    profiles: [apps]
+    image: sovereign-node/calino:0.22.7
+    container_name: calino
+    restart: unless-stopped
+    networks: [front]
+
+networks:
+  front:
+    internal: true

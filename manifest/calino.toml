@@ -1,0 +1,42 @@
+# Calino — a CalDAV web client for viewing and interacting with calendar entries.
+# Upstream: github.com/Ivan-Malinovski/calino (MIT), mirrored at mirrors/calino.
+# Pinned to commit 8e21e96ec842 (v0.22.7). Image built by scripts/build-mirrored.sh
+# from the upstream Dockerfile at deploy time.
+
+[app]
+name = "calino"
+version = "0.22.7"
+description = "CalDAV web client; ring 1 behind the door; upstream: Ivan-Malinovski/calino (MIT)"
+image = "sovereign-node/calino:0.22.7"
+ring = 1
+
+[service]
+port = 8080
+health = "/"
+
+[needs]
+# No internal calls; the browser connects to Radicale through the calino route's
+# DAV proxy (/dav/* -> radicale:5232, same-origin, zero CORS). Credentials are
+# stored in localStorage and sent directly to the proxy.
+
+[resources]
+volumes = []
+database = "none"
+
+[tests]
+command = "curl -fsS $APP_URL/"
+timeout_seconds = 15
+
+[lifecycle]
+backup = []
+update_policy = "pinned"    # pinned to upstream commit 8e21e96ec842; update by
+                            # changing the ref in [build] section
+
+[build]
+# Mirror repo (mirrors/calino), pinned commit, and build
+# args. The generic scripts/build-mirrored.sh reads this section to build
+# the image on the host at deploy time (no BuildKit network issues).
+repo = "mirrors/calino"
+ref = "8e21e96ec842a426e714f78ff1f9cfa3e297c03b"
+args.VITE_SITE_URL = "https://calino.${NODE_DOMAIN}"
+args.CALINO_SELF_HOSTED = "true"

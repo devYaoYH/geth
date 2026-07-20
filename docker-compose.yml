@@ -32,6 +32,9 @@ include:
     env_file: secrets/launcher.env
   - path: apps/search-broker/compose.yaml
     env_file: secrets/search-broker.env
+  - path: apps/floor/compose.yaml
+    env_file: secrets/floor.env
+  - path: apps/calino/compose.yaml
 
 networks:
   edge:
@@ -44,8 +47,8 @@ networks:
     internal: true
   litellm:
   dockerwatch:
-    # homepage <-> docker-proxy ONLY: read-only container status for the
-    # dashboard. The raw socket never enters a routed container.
+    # docker-proxy's read-only container-status feed, consumed by homepage
+    # and the floor. The raw socket never enters a routed container.
     internal: true
   agents:
     # internal: agents get NO direct internet. The only egress from the spur
@@ -61,6 +64,10 @@ networks:
     # Scoped docker socket proxy for the on-demand launcher. Only the launcher
     # and launcher-docker-proxy reside here — no routed container touches the
     # raw socket directly.
+    internal: true
+  search-admin:
+    # The Ring 0 audit route joins this with Caddy and the broker only. Neither
+    # agent tenants nor the egress companion can read the persistent audit log.
     internal: true
 
 volumes:
@@ -100,6 +107,9 @@ services:
       # server-side so the browser never sees it. Set in .env; generated with
       # openssl rand -hex 32.
       LAUNCHER_API_KEY: ${LAUNCHER_API_KEY:-}
+      # Shared only with search-broker. Caddy injects this upstream credential
+      # for the Ring 0 audit dashboard; browsers and agents never receive it.
+      SEARCH_AUDIT_TOKEN: ${SEARCH_AUDIT_TOKEN:-}
     volumes:
       - ./caddy:/etc/caddy:ro     # Caddyfile + untracked local/*.caddy overrides
       # app fragments' route.caddy files; /etc/caddy is itself a ro mount, so
@@ -114,6 +124,7 @@ services:
         # egress-less apps still complete server-side OIDC (token/userinfo)
         # by hairpinning through the door — with the real certificate.
         aliases: ["auth.${NODE_DOMAIN}"]
+      search-admin:
 
   litellm:
     # Digest-pinned (as is every image here). To update: scripts/pin-images.sh,

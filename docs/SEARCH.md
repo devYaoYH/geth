@@ -10,8 +10,10 @@ agent-dev --agents--> search-broker --search-private--> search-egress --edge--> 
 The broker has no `edge` network. It accepts only `POST /v1/search`, requires
 the revocable `AGENT_SEARCH_TOKEN`, limits the request shape, and records a
 JSONL audit event with a query hash, caller capability, Exa request ID, result
-URLs, status, byte count, duration, and reported cost. It does not record the
-raw query or any bearer token. The egress process is the only holder of
+URLs, status, byte count, duration, and reported cost. For a completed search,
+the protected operator audit additionally retains its raw query and a bounded
+snapshot of the returned titles, URLs, metadata, and highlights. It never
+records any bearer token. The egress process is the only holder of
 `EXA_API_KEY`; it has a hard-coded `POST https://api.exa.ai/search` upstream
 and is not a reusable HTTP proxy.
 
@@ -25,7 +27,7 @@ and start the capability:
 git clone https://git.<domain>/apps/search-broker /srv/sovereign-apps/search-broker
 docker build -t sovereign-node/search-broker:local /srv/sovereign-apps/search-broker
 ./scripts/search-setup.sh
-docker compose --profile apps up -d search-broker search-egress
+docker compose --profile apps up -d search-broker search-egress caddy
 ```
 
 `search-setup.sh` copies the `EXA_API_KEY` you placed in `.env` into the
@@ -33,6 +35,14 @@ host-only `secrets/search-broker.env`, mints the broker-to-egress token there,
 and mints a separate caller token in `.env`. It never prints those values.
 After verifying the service, remove the legacy `EXA_API_KEY` line from `.env`;
 the per-app secret file is the authoritative location.
+
+`search-setup.sh` also mints `SEARCH_AUDIT_TOKEN`. Only Caddy and the broker
+receive that value; Caddy injects it over the dedicated internal
+`search-admin` network for `https://search.<domain>`. This Ring 0 dashboard
+lists newest-first search events. Each newly completed search can be expanded
+to inspect its query and retained result snapshot; records already written in
+the earlier summary-only format cannot be reconstructed. API keys and bearer
+tokens are never retained, and agents cannot reach this network.
 
 An agent calls `http://search-broker:8080/v1/search` with
 `Authorization: Bearer $AGENT_SEARCH_TOKEN`. Search results are untrusted
