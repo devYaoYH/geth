@@ -1,0 +1,36 @@
+# Launcher — on-demand app lifecycle controller. Merged into the node stack by
+# the root docker-compose.yml `include:` list. Has the Docker socket (read-write)
+# and the project root (read-only, for compose file access). Only performs
+# declared operations for declared on-demand apps from an allowlist.
+#
+# Reachable via Caddy at launch.<domain>, behind ring1.
+# Agent-network callers cannot reach this service.
+
+services:
+  launcher:
+    profiles: [on-demand]
+    build: .
+    image: sovereign-node/launcher:local
+    container_name: launcher
+    restart: unless-stopped
+    environment:
+      PORT: "8081"
+      COMPOSE_PROJECT: sovereign-node
+      COMPOSE_DIR: /srv/compose
+      ALLOWED_ON_DEMAND_APPS: snake
+      LAUNCHER_API_KEY: ${LAUNCHER_API_KEY:-}
+      AUDIT_LOG: /var/log/launcher/audit.jsonl
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Mount the project root read-only so docker compose can find the compose
+      # files and build context for on-demand services.
+      - .:/srv/compose:ro
+      - launcher_audit:/var/log/launcher
+    networks: [front]
+
+networks:
+  front:
+    internal: true
+
+volumes:
+  launcher_audit:

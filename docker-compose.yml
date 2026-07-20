@@ -28,6 +28,8 @@ include:
     env_file: secrets/gog-bridge.env
   - path: apps/snake/compose.yaml
     env_file: secrets/snake.env
+  - path: apps/launcher/compose.yaml
+    env_file: secrets/launcher.env
   - path: apps/search-broker/compose.yaml
     env_file: secrets/search-broker.env
 
@@ -65,6 +67,7 @@ volumes:
   agent_workspace:
   assistant_workspace:
   search_audit:
+  launcher_audit:
 
 services:
   caddy:
