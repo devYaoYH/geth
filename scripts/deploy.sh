@@ -15,7 +15,7 @@ cd "$(dirname "$0")/.."
 # 1. Bring the merged tree into the working checkout FROM FORGEJO (where the PR
 #    merged), fast-forward only — a divergence is an operator decision, not a
 #    silent merge commit from a deploy script. Remember where we started: the
-#    OLD_HEAD..HEAD diff drives the config-restart pass in step 5.
+#    OLD_HEAD..HEAD diff drives the config-restart pass in step 6.
 OLD_HEAD=$(git rev-parse HEAD)
 git fetch forgejo main
 if ! git merge --ff-only forgejo/main; then
@@ -30,7 +30,13 @@ git push origin main || echo "deploy: WARN could not push origin (continuing; no
 # 3. Refresh derived secrets (e.g. RADICALE_WEB_AUTH) before compose reads .env.
 ./scripts/derive-secrets.sh
 
-# 4. Apply: recreate any service whose spec changed (env/image/etc).
+# 4. Build any mirrored images that are missing (idempotent: existing images
+#    are skipped). This happens before compose up so the image reference in
+#    the compose fragment resolves. Only touches apps with a [build] section
+#    in their manifest.
+./scripts/build-mirrored.sh
+
+# 5. Apply: recreate any service whose spec changed (env/image/etc).
 #    Two passes, because "which profiles are enabled" is the OPERATOR's call,
 #    not this script's: first the core plane (default profile), then every
 #    profile-gated service that is CURRENTLY RUNNING — naming a service
@@ -46,7 +52,7 @@ if [[ -n "$RUNNING" ]]; then
   docker compose up -d $RUNNING
 fi
 
-# 5. Bind-mounted CONTENT changes don't recreate containers — compose only
+# 6. Bind-mounted CONTENT changes don't recreate containers — compose only
 #    diffs the service spec. Caddy gets a validated reload (routes are its
 #    config); any app whose apps/<name>/ files changed beyond compose.yaml/
 #    route.caddy (e.g. radicale's `config` file, read once at startup) gets a
