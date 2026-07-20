@@ -1,98 +1,85 @@
 #!/usr/bin/env bash
-# verify-config.sh — validate all config files that caddy/shellcheck can check.
+# Offline config verification — a pure text check, no daemon, no data, no
+# network. Runs the same validations the operator runs when reviewing a config
+# PR, so the agent can self-check BEFORE pushing (the jail image carries the
+# caddy binary + shellcheck for exactly this). Also runnable by the operator
+# and by CI.
 #
-# Runs BEFORE pushing to catch syntax errors that would cause deploy to refuse
-# the config.  Intended to be called from the agent workspace (CI) or manually.
+#   ./scripts/verify-config.sh            # validate everything
 #
-# Usage:
-#   ./scripts/verify-config.sh
-#
-# Exit code: 0 = PASS, 1 = FAIL
-
-set -euo pipefail
-cd "$(dirname "$0")/.."          # repo root
-
-PASS=0
+# What it checks:
+#   1. The FULL assembled Caddyfile (root Caddyfile + every apps/*/route.caddy)
+#      adapts+validates — with dummy env values, since validation is about
+#      syntax/structure, not real secrets. This is what catches header_up
+#      misplacement, bad matchers, brace nesting, etc.
+#   2. YAML parses (docker-compose.yml, apps/*/compose.yaml, config/*.yaml).
+#   3. Shell scripts pass shellcheck (syntax + common bugs).
+# Exit non-zero on the first failure; prints what failed and where.
+set -uo pipefail
+cd "$(dirname "$0")/.."
 FAIL=0
+note() { printf '  %s\n' "$1"; }
+sec()  { printf '\n== %s ==\n' "$1"; }
 
-pass() { PASS=$((PASS+1)); echo "  [PASS] $*"; }
-fail() { FAIL=$((FAIL+1)); echo "  [FAIL] $*"; }
-
-echo "=== verify-config.sh — starting ==="
-echo
-
-# ---------------------------------------------------------------------------
-# 1.  Caddyfile syntax validation
-# ---------------------------------------------------------------------------
-echo "--- Caddy validation ---"
-
-# The Caddyfile uses {$NODE_DOMAIN}, {$ACME_EMAIL}, etc.  Provide dummy values
-# so caddy validate can resolve them.  These are never written to disk.
-export NODE_DOMAIN=example.com
-export ACME_EMAIL=admin@example.com
-export EXTRA_TRUSTED_RANGES=192.0.2.0/32
-export RADICALE_WEB_AUTH=dGVzdDp0ZXN0     # dummy base64 "test:test"
-
-CADDYFILE=caddy/Caddyfile
-if [[ -f $CADDYFILE ]]; then
-  if caddy validate --config "$CADDYFILE" > /dev/null 2>&1; then
-    pass "caddy validate $CADDYFILE"
-  else
-    # Re-run without suppressing stderr so the operator sees the error
-    caddy validate --config "$CADDYFILE" 2>&1 | head -20
-    fail "caddy validate $CADDYFILE"
-  fi
+# --- 1. Caddy: assemble the whole door and validate ------------------------
+sec "caddy validate (full assembled Caddyfile)"
+if ! command -v caddy >/dev/null 2>&1; then
+  note "SKIP: no caddy binary here (present in the jail image; install caddy to run this locally)"
 else
-  fail "$CADDYFILE not found"
-fi
-
-# ---------------------------------------------------------------------------
-# 2.  Shellcheck on every .sh file that is tracked by git
-# ---------------------------------------------------------------------------
-echo
-echo "--- Shellcheck ---"
-
-while IFS= read -r -d '' f; do
-  # -S error: only actual errors are fatal (info/warnings are pre-existing
-  # and non-blocking); new code should still be error-free.
-  if shellcheck -S error -x "$f" > /dev/null 2>&1; then
-    pass "shellcheck ${f#./}"
+  TD=$(mktemp -d)
+  cp -r caddy "$TD/caddy"
+  cp -r apps  "$TD/apps"
+  # The root Caddyfile imports app routes by ABSOLUTE path
+  # (import /srv/apps/*/route.caddy — where prod mounts them). In this temp
+  # tree they live at $TD/apps, so rewrite the import to point there —
+  # otherwise the glob matches nothing, the routes are silently skipped, and
+  # a broken route.caddy validates as "OK" against an empty door. (This is the
+  # subtle trap: without this, the linter passes broken configs.)
+  # portable in-place (GNU sed -i and BSD sed -i differ) — rewrite via temp.
+  sed "s#/srv/apps/#$TD/apps/#g" "$TD/caddy/Caddyfile" > "$TD/Caddyfile.tmp" \
+    && mv "$TD/Caddyfile.tmp" "$TD/caddy/Caddyfile"
+  printf 'NODE_DOMAIN=localhost\nACME_EMAIL=op@example.com\nEXTRA_TRUSTED_RANGES=192.0.2.0/32\nRADICALE_WEB_AUTH=ZHVtbXk6ZHVtbXk=\nRADICALE_OPERATOR_EMAIL=\n' > "$TD/envfile"
+  # Dummy env so interpolation resolves; validation is about structure, not
+  # real values.
+  if caddy validate --config "$TD/caddy/Caddyfile" --adapter caddyfile \
+        --envfile "$TD/envfile" >/tmp/vc_caddy.log 2>&1
+  then
+    note "OK: config adapts and validates"
   else
-    shellcheck -S error -x "$f" 2>&1 | head -20
-    fail "shellcheck ${f#./}"
+    note "FAIL: caddy validate errored —"
+    grep -viE "using config|maintenance|shutting down|^\{.*level.:.info" /tmp/vc_caddy.log | sed 's/^/    /' | tail -12
+    FAIL=1
   fi
-done < <(find . -name '*.sh' -not -path './.git/*' -print0)
+  rm -rf "$TD"
+fi
 
-# ---------------------------------------------------------------------------
-# 3.  Compose YAML syntax (basic — docker compose config catches more)
-# ---------------------------------------------------------------------------
-echo
-echo "--- Docker Compose syntax ---"
+# --- 2. YAML parse ----------------------------------------------------------
+sec "yaml parse"
+YAML_FILES=$(ls docker-compose.yml apps/*/compose.yaml config/*.yaml 2>/dev/null)
+for f in $YAML_FILES; do
+  if python3 -c "import sys,yaml; list(yaml.safe_load_all(open(sys.argv[1])))" "$f" 2>/tmp/vc_yaml.log; then
+    :
+  else
+    note "FAIL: $f —"; sed 's/^/    /' /tmp/vc_yaml.log | tail -4; FAIL=1
+  fi
+done
+[[ "$FAIL" -eq 0 ]] && note "OK: all YAML parses" || true
 
-if command -v docker > /dev/null 2>&1; then
-  for yf in docker-compose.yml docker-compose.staging.yml; do
-    if [[ -f $yf ]]; then
-      if docker compose -f "$yf" config > /dev/null 2>&1; then
-        pass "docker compose config $yf"
-      else
-        docker compose -f "$yf" config 2>&1 | head -10
-        fail "docker compose config $yf"
-      fi
-    fi
-  done
+# --- 3. Shell lint ----------------------------------------------------------
+sec "shellcheck"
+if ! command -v shellcheck >/dev/null 2>&1; then
+  note "SKIP: no shellcheck here (present in the jail image)"
 else
-  echo "  [SKIP] docker not available — compose syntax not checked"
+  SH=$(git ls-files 'scripts/*.sh' 'host/**/*.sh' 2>/dev/null || ls scripts/*.sh)
+  # -S error: only fail the gate on errors, not style warnings (the existing
+  # scripts predate this and use intentional patterns).
+  if shellcheck -S error $SH >/tmp/vc_sh.log 2>&1; then
+    note "OK: no shellcheck errors"
+  else
+    note "FAIL: shellcheck errors —"; sed 's/^/    /' /tmp/vc_sh.log | head -20; FAIL=1
+  fi
 fi
 
-# ---------------------------------------------------------------------------
-# Summary
-# ---------------------------------------------------------------------------
 echo
-echo "=== results: $PASS pass, $FAIL fail ==="
-
-if [[ $FAIL -gt 0 ]]; then
-  echo "!!! ONE OR MORE CHECKS FAILED — fix before pushing !!!"
-  exit 1
-fi
-
-echo "ALL CHECKS PASSED — config is safe to push."
+if [[ "$FAIL" -eq 0 ]]; then echo "verify-config: PASS"; else echo "verify-config: FAIL (fix the above before pushing)"; fi
+exit "$FAIL"

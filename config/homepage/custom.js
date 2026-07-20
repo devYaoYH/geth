@@ -115,13 +115,32 @@
     }
   });
 
-  // --- keep the chatbar Home-only; tag the Apps group as icon tiles --------
+  // --- global composer; Home tiles; polished tab controls -------------------
+  // The composer belongs to the page shell, not any one Homepage tab. Keeping
+  // the body padding on at every tab avoids cards ending beneath the sheet.
+  const tabIcons = {
+    Home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1Z"/></svg>',
+    Workshop: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m14.7 6.3 3 3M3 21l4.7-1.2L19.4 8.1a2.1 2.1 0 0 0-3-3L4.7 16.8 3 21Z"/><path d="m12 5 7 7"/></svg>',
+    Operations: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="7" rx="1.5"/><rect x="3" y="14" width="18" height="7" rx="1.5"/><path d="M7 6.5h.01M7 17.5h.01M11 6.5h6M11 17.5h6"/></svg>',
+    Security: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 20 6v5c0 5.1-3.4 8.7-8 10-4.6-1.3-8-4.9-8-10V6Z"/><path d="m8.5 12 2.2 2.2 4.8-4.8"/></svg>',
+  };
+
+  const decorateTabs = () => {
+    document.querySelectorAll('[role="tab"]').forEach((tab) => {
+      const label = tab.textContent.trim();
+      if (!tabIcons[label] || tab.querySelector('.geth-tab-icon')) return;
+      const icon = document.createElement('span');
+      icon.className = 'geth-tab-icon';
+      icon.setAttribute('aria-hidden', 'true');
+      icon.innerHTML = tabIcons[label];
+      tab.prepend(icon);
+    });
+  };
+
   const syncChrome = () => {
-    const activeTab = [...document.querySelectorAll('[role="tab"]')]
-      .find((tab) => tab.getAttribute('aria-selected') === 'true');
-    const onHome = activeTab ? activeTab.textContent.trim() === 'Home' : true;
-    chatbar.hidden = !onHome;
-    document.documentElement.classList.toggle('geth-chatbar-open', onHome);
+    chatbar.hidden = false;
+    document.documentElement.classList.add('geth-chatbar-open');
+    decorateTabs();
 
     document.querySelectorAll('.services-group').forEach((group) => {
       const heading = group.querySelector('h1, h2, h3')?.textContent.trim();

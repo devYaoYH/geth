@@ -35,6 +35,24 @@ close() { A -X PATCH "$GAPI/issues/$1" -d '{"state":"closed"}' >/dev/null; }
 
 mkdir -p .task-dispatch    # per-brief cooldown stamps (gitignored host state)
 
+# Pass lock: at most one dispatcher PASS at a time so claim-checks never race
+# (launchd already coalesces its triggers; this also guards a manual run
+# overlapping a launchd one). mkdir is atomic. Detached issue runs do NOT hold
+# this — it's released when the pass exits, seconds later. Steal a stale lock
+# (a crashed pass) after 30 min. Per-issue exclusivity does not depend on this
+# lock — the in-progress label is the durable claim — this just prevents two
+# passes from both claiming the same fresh issue in the same instant.
+LOCK=.task-dispatch/pass.lock
+if ! mkdir "$LOCK" 2>/dev/null; then
+  if [[ -d "$LOCK" ]] && [[ $(( $(date +%s) - $(stat -f %m "$LOCK" 2>/dev/null || stat -c %Y "$LOCK") )) -gt 1800 ]]; then
+    echo "[dispatch] stealing stale pass lock (>30m)"; rmdir "$LOCK" 2>/dev/null || true
+    mkdir "$LOCK" 2>/dev/null || { echo "[dispatch] lock contended; exiting"; exit 0; }
+  else
+    echo "[dispatch] another pass holds the lock; exiting"; exit 0
+  fi
+fi
+trap 'rmdir "$LOCK" 2>/dev/null || true' EXIT
+
 OPERATOR_LOGIN="${OPERATOR_LOGIN:-${FORGEJO_ADMIN_USER:-operator}}"   # the ONLY actor whose assignment authorizes a launch (host env may override)
 AGENT_LOGIN="${AGENT_GIT_USER:-agent-dev}"         # the assignee we dispatch for
 
@@ -107,68 +125,74 @@ ev.sort(key=lambda e: e.get("created_at",""))
 print((ev[-1].get("user") or {}).get("login","") if ev else "")' "$OPERATOR_LOGIN" "$AGENT_LOGIN"
 }
 
+# Concurrency: agents run in PARALLEL — one detached dispatch-run.sh per issue.
+# The only hard invariant is per-ISSUE exclusivity (never two containers on the
+# same issue), enforced by claim-before-spawn + the pass lock below. MAX_CONC is
+# a HOST-RESOURCE backstop (memory/CPU), NOT the spend control — spend is bounded
+# by LiteLLM (per-run key budgets, and a global budget if one is set). Raise it
+# for bigger swarms; 0 = unlimited.
+MAX_CONC="${DISPATCH_MAX_CONCURRENCY:-4}"
+running_tenants() { docker ps --filter "name=task-issue-work" -q 2>/dev/null | grep -c . || true; }
+adaudit() {  # adaudit <issue> <action> <detail>
+  printf '{"ts":"%s","issue":%s,"action":"%s","run":"","detail":"%s"}\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" "${3//\"/\'}" >> .task-dispatch/dispatch-audit.log
+}
+
 if [[ -z "$INPROG_ID" ]]; then
   echo "[dispatch] assigned-issue mode DISABLED: no 'in-progress' label in $COORDINATION_REPO (operator must create it once)"
 else
-  A "$GAPI/issues?state=open&type=issues&limit=50" | python3 -c '
+  # Collect eligible issues first (avoid a pipe-subshell so counters/claims are
+  # in THIS shell — the claim must be visible before the next iteration).
+  ELIGIBLE=$(A "$GAPI/issues?state=open&type=issues&limit=50" | python3 -c '
 import json,sys
 agent=sys.argv[1]
 for i in json.load(sys.stdin):
     assignees={(a or {}).get("login") for a in (i.get("assignees") or [])}
     labels={(l or {}).get("name") for l in (i.get("labels") or [])}
     if agent in assignees and "in-progress" not in labels:
-        print(i["number"])' "$AGENT_LOGIN" \
-  | while read -r NUM; do
+        print(i["number"])' "$AGENT_LOGIN")
+
+  for NUM in $ELIGIBLE; do
     echo "[assign] #$NUM assigned to $AGENT_LOGIN, unclaimed — checking authorization"
 
     ACTOR=$(assign_by_operator "$NUM")
     if [[ "$ACTOR" != "$OPERATOR_LOGIN" ]]; then
       echo "[assign] #$NUM REFUSED: latest assignment actor='${ACTOR:-none}' != operator='$OPERATOR_LOGIN'"
+      adaudit "$NUM" refused "actor=${ACTOR:-none}"
       [[ "$DRY" == "--dry-run" ]] || say "$NUM" "Not dispatched: this issue was assigned to \`$AGENT_LOGIN\` by \`${ACTOR:-someone other than the operator}\`, not the operator. Auto-dispatch only honors operator assignments — an agent cannot task another agent by self-assigning. If this is real work, the operator should (re)assign it."
       continue
     fi
 
     # Retry cooldown: a prior launch that FAILED released the claim and stamped
-    # here. Don't relaunch within the hour — bounds hot-looping on a persistent
-    # failure (bad PATH, key-mint down) while still allowing eventual retry.
+    # here. Don't relaunch within the hour (bounds hot-looping on a persistent
+    # failure) while still allowing eventual retry.
     FSTAMP=".task-dispatch/issue-$NUM"
     if [[ -f "$FSTAMP" ]] && [[ $(( $(date +%s) - $(stat -f %m "$FSTAMP" 2>/dev/null || stat -c %Y "$FSTAMP") )) -lt 3600 ]]; then
-      echo "[assign] #$NUM deferred — a launch failed within the hour; cooling down"; continue
+      echo "[assign] #$NUM deferred — a launch failed within the hour; cooling down"
+      adaudit "$NUM" deferred "cooldown"; continue
+    fi
+
+    # Host-resource backstop (not spend): if at the concurrency ceiling, leave
+    # the issue UNCLAIMED so the next pass dispatches it when a slot frees.
+    if [[ "$MAX_CONC" != "0" ]] && [[ "$(running_tenants)" -ge "$MAX_CONC" ]]; then
+      echo "[assign] #$NUM deferred — $MAX_CONC tenants already running (host cap); next pass"
+      adaudit "$NUM" deferred "at-host-cap=$MAX_CONC"; continue
     fi
 
     if [[ "$DRY" == "--dry-run" ]]; then
-      echo "[assign] #$NUM WOULD LAUNCH issue-work (operator-authorized, unclaimed)"
-      continue
+      echo "[assign] #$NUM WOULD LAUNCH issue-work (operator-authorized, unclaimed)"; continue
     fi
 
-    # Claim FIRST (add in-progress label), then launch — the label is the
-    # visible lock so a second pass/instance skips it at the filter above.
+    # Claim FIRST (add in-progress) — the durable per-issue lock. Then spawn the
+    # run DETACHED (setsid) so it survives this pass exiting and runs alongside
+    # other issues' tenants. Per-issue exclusivity holds: the claim is visible to
+    # the next pass's scan, and the pass lock serializes claiming.
     A -X POST "$GAPI/issues/$NUM/labels" -d "{\"labels\":[$INPROG_ID]}" >/dev/null
-    echo "[assign] #$NUM claimed (in-progress); launching issue-work"
-    say "$NUM" "Dispatched to an ephemeral \`$AGENT_LOGIN\` tenant (operator-authorized). Claimed with \`in-progress\`. Deliverable will be a node-config PR + a comment here; if I'm blocked I'll say so."
-
-    if OUT=$(./scripts/run-task.sh tasks/issue-work.md --issue "$NUM" 2>&1); then
-      RC=0; else RC=$?; fi
-    OUT=$(tail -15 <<<"$OUT")
-    if [[ "$RC" -eq 0 ]]; then
-      say "$NUM" "Ephemeral run finished. Tail:
-
-\`\`\`
-$OUT
-\`\`\`
-If a PR was opened it's linked above; if I hit a wall the comment says BLOCKED. \`in-progress\` stays until the work lands or the operator clears it."
-    else
-      # Launch/agent FAILED — release the claim so the issue isn't stranded, and
-      # stamp the cooldown so we don't relaunch on the very next tick.
-      touch "$FSTAMP"
-      A -X DELETE "$GAPI/issues/$NUM/labels/$INPROG_ID" >/dev/null || true
-      say "$NUM" "Dispatch FAILED (exit $RC) — released \`in-progress\` so this can be retried (1h cooldown). Tail:
-
-\`\`\`
-$OUT
-\`\`\`
-Reassign after fixing, or wait for the cooldown to lapse."
-    fi
+    echo "[assign] #$NUM claimed (in-progress); spawning detached issue-work"
+    say "$NUM" "Dispatched to an ephemeral \`$AGENT_LOGIN\` tenant (operator-authorized). Claimed with \`in-progress\`. Deliverable is a node-config PR + a comment here; if I'm blocked I'll say so."
+    adaudit "$NUM" dispatched "actor=$ACTOR"
+    setsid ./scripts/dispatch-run.sh "$NUM" >>.task-dispatch/dispatch-run.log 2>&1 &
+    sleep 3   # let the container register before the next cap check
   done
 fi
 
