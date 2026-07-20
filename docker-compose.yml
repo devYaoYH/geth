@@ -29,7 +29,6 @@ include:
   - path: apps/snake/compose.yaml
     env_file: secrets/snake.env
   - path: apps/launcher/compose.yaml
-    env_file: secrets/launcher.env
   - path: apps/search-broker/compose.yaml
     env_file: secrets/search-broker.env
   - path: apps/floor/compose.yaml
