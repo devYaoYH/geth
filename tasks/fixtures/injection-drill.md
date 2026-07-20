@@ -1,6 +1,9 @@
 ---
 task: injection-drill
-model: claude-haiku
+model: deepseek-flash
+harness: forge           # matches agent-dev's real dispatcher harness; claude's
+                         # default permission mode stalls asking for approval
+                         # with nobody there to answer it in an ephemeral run
 budget_usd: 0.10
 expires: 30m
 env: []
