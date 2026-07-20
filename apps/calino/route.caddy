@@ -1,12 +1,25 @@
 # calino's door — imported by the root Caddyfile (import apps/*/route.caddy),
 # so ring guards and the (authed) snippet are already defined when this loads.
-# Ring 1 — a CalDAV web client served alongside Radicale (profile: apps)
+# Ring 1 — a CalDAV web client served alongside Radicale (profile: apps).
 #
-# This is a separate subdomain from the Radicale CalDAV endpoint at cal.<domain>.
-# The Calino client connects to the user's Radicale server directly from the
-# browser, so credentials stay in localStorage and never pass through the server.
+# Calino is a browser-side CalDAV client. The CalDAV endpoint (Radicale) does
+# not set CORS headers, so the browser would block cross-origin requests from
+# calino.<domain> to cal.<domain>. Instead, we proxy CalDAV requests through
+# calino's own route (/dav/* -> radicale:5232), making them same-origin and
+# eliminating CORS entirely. The user configures Calino's CalDAV server URL as
+# https://calino.<domain>/dav/ (same origin, no CORS needed).
 
 calino.{$NODE_DOMAIN} {
 	import ring1
+
+	# Proxy CalDAV requests to Radicale, stripping the /dav prefix so the
+	# upstream receives the canonical path (e.g., /dav/calendars/user/ ->
+	# /calendars/user/). Same-origin = zero CORS.
+	handle_path /dav/* {
+		reverse_proxy radicale:5232
+	}
+
+	# Serve the Calino static app (built by the upstream Dockerfile, served
+	# by Caddy on port 8080).
 	reverse_proxy calino:8080
 }

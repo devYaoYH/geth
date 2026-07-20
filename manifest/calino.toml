@@ -1,10 +1,12 @@
 # Calino — a CalDAV web client for viewing and interacting with calendar entries.
-# Built locally from apps/calino/site; no external image needed.
+# Upstream: github.com/Ivan-Malinovski/calino (MIT), mirrored at mirrors/calino.
+# Pinned to commit 8e21e96ec842 (v0.22.7). Builds from the upstream Dockerfile
+# via compose git context; no local source in this repo.
 
 [app]
 name = "calino"
-version = "0"
-description = "CalDAV web client; ring 1 behind the door"
+version = "0.22.7"
+description = "CalDAV web client; ring 1 behind the door; upstream: Ivan-Malinovski/calino (MIT)"
 image = "sovereign-node/calino"
 ring = 1
 
@@ -13,8 +15,9 @@ port = 8080
 health = "/"
 
 [needs]
-# No internal calls; the browser connects to Radicale directly over CalDAV with
-# credentials stored in localStorage. No server-side auth passthrough needed.
+# No internal calls; the browser connects to Radicale through the calino route's
+# DAV proxy (/dav/* -> radicale:5232, same-origin, zero CORS). Credentials are
+# stored in localStorage and sent directly to the proxy.
 
 [resources]
 volumes = []
@@ -26,4 +29,5 @@ timeout_seconds = 15
 
 [lifecycle]
 backup = []
-update_policy = "staged"
+update_policy = "pinned"    # pinned to upstream commit 8e21e96ec842; update by
+                            # changing the commit SHA in compose.yaml

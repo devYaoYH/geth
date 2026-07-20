@@ -2,18 +2,27 @@
 # docker-compose.yml `include:` list. This file owns everything calino:
 # service, the networks it joins. Shared networks re-declare the root's
 # attributes exactly; compose merges.
+#
+# Source: mirrors/calino (local mirror of github.com/Ivan-Malinovski/calino),
+# MIT license, v0.22.7, pinned to commit 8e21e96ec842. The upstream ships its
+# own Dockerfile; we build from it directly via git context.
 
 services:
   # --- apps ring 1: calino ---------------------------------------------------
-  # A CalDAV web client (static HTML/JS) served by python http.server. Built
-  # locally from ./site (no internet needed; upstream image already cached).
-  # The app connects to the Radicale CalDAV server — credentials are entered
-  # by the user in the browser and stored in localStorage (never on the wire
-  # beyond the CalDAV fetch itself).
+  # A CalDAV web client (React/TypeScript) that connects to the Radicale CalDAV
+  # server. Credentials are entered by the user in the browser and stored in
+  # localStorage (never on the wire beyond the CalDAV fetch itself). The DAV
+  # proxy on the calino route (/dav/* -> radicale:5232) avoids CORS entirely.
   calino:
     profiles: [apps]
-    build: ./site
-    image: sovereign-node/calino:local
+    build:
+      # Upstream Dockerfile, pinned to the mirrored commit. The Docker daemon
+      # accesses the local mirror (anonymous pull allowed) on the internal net.
+      context: "http://forgejo:3000/mirrors/calino.git#8e21e96ec842"
+      args:
+        VITE_SITE_URL: "https://calino.${NODE_DOMAIN}"
+        CALINO_SELF_HOSTED: "true"
+    image: sovereign-node/calino:0.22.7
     container_name: calino
     restart: unless-stopped
     networks: [front]
