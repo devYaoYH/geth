@@ -30,6 +30,12 @@ git push origin main || echo "deploy: WARN could not push origin (continuing; no
 # 3. Refresh derived secrets (e.g. RADICALE_WEB_AUTH) before compose reads .env.
 ./scripts/derive-secrets.sh
 
+# 3b. Mint per-app credentials the merged tree now expects: scaffold any missing
+#     secrets/<app>.env (a missing env_file aborts the WHOLE compose up before
+#     any container starts), auto-generate blank `# mint:` secrets, and flag any
+#     operator-owed `# require:` ones. Idempotent — only ever fills blanks.
+./scripts/mint-secrets.sh
+
 # 4. Build any mirrored images that are missing (idempotent: existing images
 #    are skipped). This happens before compose up so the image reference in
 #    the compose fragment resolves. Only touches apps with a [build] section
