@@ -45,8 +45,9 @@ for toml in "${toml_files[@]}"; do
   #   image\trepo\tref\targ1\targ2\t...
   # and exits with a code we dispatch on:
   #   0 = build needed, 2 = no [build], 3 = missing fields, 4 = invalid ref.
-  OUTPUT=$(python3 "$PARSE_SCRIPT" "$toml" 2>&1) || true
-  EXIT_CODE=$?
+  # NOTE: stderr (e.g. the exit-4 error message) is NOT redirected to stdout
+  # so it doesn't get parsed as a data line.
+  if OUTPUT=$(python3 "$PARSE_SCRIPT" "$toml"); then EXIT_CODE=0; else EXIT_CODE=$?; fi
 
   # Exit code 2 = no [build] section, skip silently.
   if [[ "$EXIT_CODE" -eq 2 ]]; then
