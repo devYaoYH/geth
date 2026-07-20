@@ -27,5 +27,7 @@ command = "python3 tests/smoke.py"
 timeout_seconds = 60
 
 [lifecycle]
-backup = ["search_audit", "search_audit_db"]
+# search_audit_db is a live Postgres data directory; it is pg_dump-ed by
+# scripts/backup.sh instead of file-copied (see Consistent DB snapshots there).
+backup = ["search_audit"]
 update_policy = "staged"
