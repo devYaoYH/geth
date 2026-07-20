@@ -3,8 +3,8 @@
 
 [app]
 name = "search-broker"
-version = "0.4.0"
-description = "Audited Exa search with inspectable operator-only results"
+version = "0.5.0"
+description = "Concurrent Exa search with a structured, operator-only audit database"
 image = "sovereign-node/search-broker:local"
 ring = 0
 
@@ -19,13 +19,15 @@ health = "/healthz"
 # configuration held by the egress component, not an agent-visible credential.
 
 [resources]
-volumes = ["search_audit"]
-database = "none"
+volumes = ["search_audit", "search_audit_db"]
+database = "postgres"
 
 [tests]
 command = "python3 tests/smoke.py"
 timeout_seconds = 60
 
 [lifecycle]
+# search_audit_db is a live Postgres data directory; it is pg_dump-ed by
+# scripts/backup.sh instead of file-copied (see Consistent DB snapshots there).
 backup = ["search_audit"]
 update_policy = "staged"

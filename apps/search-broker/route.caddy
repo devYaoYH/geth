@@ -3,7 +3,7 @@
 # dedicated search-admin network, not through the agents spur.
 search.{$NODE_DOMAIN} {
 	import ring0
-	reverse_proxy search-broker:8080 {
+	reverse_proxy search-audit-api:8082 {
 		header_up X-Search-Audit-Token "{env.SEARCH_AUDIT_TOKEN}"
 	}
 }

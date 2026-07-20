@@ -40,6 +40,13 @@ if [[ -z "$(value_of SEARCH_EGRESS_TOKEN "$SECRET_FILE")" ]]; then
   echo "   minted SEARCH_EGRESS_TOKEN (broker <-> egress only)"
 fi
 
+for search_audit_secret in SEARCH_AUDIT_DB_OWNER_PASSWORD SEARCH_AUDIT_DB_WRITER_PASSWORD SEARCH_AUDIT_DB_READER_PASSWORD; do
+  if [[ -z "$(value_of "$search_audit_secret" "$SECRET_FILE")" ]]; then
+    upsert "$search_audit_secret" "$(openssl rand -hex 32)" "$SECRET_FILE"
+    echo "   minted $search_audit_secret (private search-audit database role)"
+  fi
+done
+
 if [[ -z "${AGENT_SEARCH_TOKEN:-}" ]]; then
   upsert AGENT_SEARCH_TOKEN "$(openssl rand -hex 32)" .env
   echo "   minted AGENT_SEARCH_TOKEN (agent-dev -> broker capability)"
