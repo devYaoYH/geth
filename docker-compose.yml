@@ -66,8 +66,12 @@ networks:
     # raw socket directly.
     internal: true
   search-admin:
-    # The Ring 0 audit route joins this with Caddy and the broker only. Neither
-    # agent tenants nor the egress companion can read the persistent audit log.
+    # The Ring 0 audit route joins this with Caddy and the read-only audit API.
+    # Neither agent tenants nor the egress companion can read search history.
+    internal: true
+  search-data:
+    # The audit database is reachable only by the broker and audit API; it has
+    # no ingress or egress path, and never joins the agents spur.
     internal: true
 
 volumes:
@@ -80,6 +84,7 @@ volumes:
   assistant_workspace:
   search_audit:
   launcher_audit:
+  search_audit_db:
 
 services:
   caddy:

@@ -1,19 +1,21 @@
 # Audited agent web search
 
 `search-broker` is a deliberately small capability, not a general outbound
-proxy:
+proxy. Its audit plane is a private PostgreSQL service, not a shared log file:
 
 ```text
 agent-dev --agents--> search-broker --search-private--> search-egress --edge--> api.exa.ai
+                          |--search-data--> search-audit-db <--search-data-- search-audit-api <--search-admin-- Caddy
 ```
 
 The broker has no `edge` network. It accepts only `POST /v1/search`, requires
 the revocable `AGENT_SEARCH_TOKEN`, limits the request shape, and records a
-JSONL audit event with a query hash, caller capability, Exa request ID, result
-URLs, status, byte count, duration, and reported cost. For a completed search,
-the protected operator audit additionally retains its raw query and a bounded
-snapshot of the returned titles, URLs, metadata, and highlights. It never
-records any bearer token. The egress process is the only holder of
+durable request row before calling Exa, so concurrent/retried agents cannot
+silently lose audit evidence. The audit database keeps a query hash, caller
+capability, Exa request ID, result URLs, status, byte count, duration, and
+reported cost. For a completed search, it additionally retains the raw query
+and a bounded snapshot of returned titles, URLs, metadata, and highlights. It
+never records any bearer token. The egress process is the only holder of
 `EXA_API_KEY`; it has a hard-coded `POST https://api.exa.ai/search` upstream
 and is not a reusable HTTP proxy.
 
@@ -27,7 +29,7 @@ and start the capability:
 git clone https://git.<domain>/apps/search-broker /srv/sovereign-apps/search-broker
 docker build -t sovereign-node/search-broker:local /srv/sovereign-apps/search-broker
 ./scripts/search-setup.sh
-docker compose --profile apps up -d search-broker search-egress caddy
+docker compose --profile apps up -d search-audit-db search-egress search-broker search-audit-api caddy
 ```
 
 `search-setup.sh` copies the `EXA_API_KEY` you placed in `.env` into the
@@ -36,13 +38,23 @@ and mints a separate caller token in `.env`. It never prints those values.
 After verifying the service, remove the legacy `EXA_API_KEY` line from `.env`;
 the per-app secret file is the authoritative location.
 
-`search-setup.sh` also mints `SEARCH_AUDIT_TOKEN`. Only Caddy and the broker
-receive that value; Caddy injects it over the dedicated internal
-`search-admin` network for `https://search.<domain>`. This Ring 0 dashboard
-lists newest-first search events. Each newly completed search can be expanded
-to inspect its query and retained result snapshot; records already written in
-the earlier summary-only format cannot be reconstructed. API keys and bearer
-tokens are never retained, and agents cannot reach this network.
+`search-setup.sh` also mints the owner, writer, and reader database role
+passwords in host-only `secrets/search-broker.env`, plus `SEARCH_AUDIT_TOKEN`
+in `.env`. The broker has the writer role; the dashboard service has the
+reader role; Caddy injects the dashboard credential over the dedicated
+internal `search-admin` network for `https://search.<domain>`. Agents cannot
+reach either the dashboard or database network.
+
+## One-time legacy import
+
+The previous JSONL volume remains a backup source. Run the importer dry first,
+then set `SEARCH_AUDIT_MIGRATE_DRY_RUN=false` in the host-only app secret file
+and run it once; it is idempotent. Old entries import as summary-only records
+because their omitted query/result detail cannot be reconstructed.
+
+```sh
+docker compose --profile apps --profile migrate run --rm search-audit-migrate
+```
 
 An agent calls `http://search-broker:8080/v1/search` with
 `Authorization: Bearer $AGENT_SEARCH_TOKEN`. Search results are untrusted

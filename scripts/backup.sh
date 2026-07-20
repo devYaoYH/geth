@@ -51,6 +51,10 @@ if docker ps --format '{{.Names}}' | grep -qx miniflux-db; then
   docker exec miniflux-db pg_dump -U miniflux miniflux > /tmp/miniflux.sql
   DUMPS+=(/tmp/miniflux.sql)
 fi
+if docker ps --format '{{.Names}}' | grep -qx search-audit-db; then
+  docker exec search-audit-db pg_dump -U search_audit_owner search_audit > /tmp/search_audit.sql
+  DUMPS+=(/tmp/search_audit.sql)
+fi
 
 # Manifest-declared volumes only exist once their profile has run; skip absent.
 EXISTING=()
