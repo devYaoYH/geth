@@ -38,7 +38,7 @@ else
   # portable in-place (GNU sed -i and BSD sed -i differ) — rewrite via temp.
   sed "s#/srv/apps/#$TD/apps/#g" "$TD/caddy/Caddyfile" > "$TD/Caddyfile.tmp" \
     && mv "$TD/Caddyfile.tmp" "$TD/caddy/Caddyfile"
-  printf 'NODE_DOMAIN=localhost\nACME_EMAIL=op@example.com\nEXTRA_TRUSTED_RANGES=192.0.2.0/32\nRADICALE_WEB_AUTH=ZHVtbXk6ZHVtbXk=\nRADICALE_OPERATOR_EMAIL=\n' > "$TD/envfile"
+  printf 'NODE_DOMAIN=localhost\nACME_EMAIL=op@example.com\nEXTRA_TRUSTED_RANGES=192.0.2.0/32\nRADICALE_WEB_AUTH=ZHVtbXk6ZHVtbXk=\nRADICALE_OPERATOR_EMAIL=op@example.com\n' > "$TD/envfile"
   # Dummy env so interpolation resolves; validation is about structure, not
   # real values.
   if caddy validate --config "$TD/caddy/Caddyfile" --adapter caddyfile \
