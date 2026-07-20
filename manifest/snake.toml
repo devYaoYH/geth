@@ -25,3 +25,4 @@ timeout_seconds = 15
 [lifecycle]
 backup = []
 update_policy = "staged"
+on_demand = true

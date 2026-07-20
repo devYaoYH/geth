@@ -90,6 +90,7 @@
         siteMonitor: http://floor:8080/healthz
     - Snake:
         icon: mdi-gamepad-variant-outline
+        id: snake-tile
         href: https://game.{{HOMEPAGE_VAR_NODE_DOMAIN}}
         description: take a playful five-minute break
         server: sovereign-node

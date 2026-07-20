@@ -9,7 +9,7 @@ services:
   # A tiny static site (canvas game) served by python http.server. Built
   # locally from ./site (no internet needed; upstream image already cached).
   snake:
-    profiles: [apps]
+    profiles: [on-demand]
     build: ./site
     image: sovereign-node/snake:local
     container_name: snake

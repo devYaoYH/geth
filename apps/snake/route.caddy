@@ -1,8 +1,14 @@
 # snake's door — imported by the root Caddyfile (import apps/*/route.caddy),
 # so ring guards and the (authed) snippet are already defined when this loads.
-# Ring 1 — a small browser game (profile: apps)
+# Ring 1 — an on-demand browser game (profile: on-demand). Starts via the
+# launcher at launch.<domain>; when stopped, shows a friendly offline page.
 
 game.{$NODE_DOMAIN} {
 	import ring1
 	reverse_proxy snake:8080
+
+	handle_errors {
+		@snake_offline expression {http.error.status_code} == 502
+		respond @snake_offline "Snake is not running. Launch it from the Home dashboard." 503
+	}
 }

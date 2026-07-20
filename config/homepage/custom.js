@@ -156,6 +156,137 @@
   });
   syncChrome();
 
+  // --- on-demand app tile: snake -------------------------------------------
+  // The snake tile is rendered by Homepage from services.yaml with id=snake-tile.
+  // We replace its href-based link with a custom launch/stop button that calls
+  // the launcher API at launch.<domain>, behind ring1.
+
+  const LAUNCHER_BASE = `https://launch.${domain}`;
+
+  const snakeTile = () => document.getElementById('snake-tile');
+
+  const snakeStatus = async () => {
+    try {
+      const r = await fetch(`${LAUNCHER_BASE}/api/status/snake`);
+      if (!r.ok) return 'stopped';
+      const data = await r.json();
+      return data.status;
+    } catch { return 'stopped'; }
+  };
+
+  const snakeLaunch = async () => {
+    try {
+      const r = await fetch(`${LAUNCHER_BASE}/api/launch/snake`, { method: 'POST' });
+      return r.ok;
+    } catch { return false; }
+  };
+
+  const snakeStop = async () => {
+    try {
+      const r = await fetch(`${LAUNCHER_BASE}/api/stop/snake`, { method: 'POST' });
+      return r.ok;
+    } catch { return false; }
+  };
+
+  const renderSnakeTile = (status) => {
+    const tile = snakeTile();
+    if (!tile) return;
+
+    // Remove the anchor link wrapper so we can replace with our own controls
+    const link = tile.querySelector('a');
+    if (link) {
+      const parent = link.parentElement;
+      while (link.firstChild) parent.insertBefore(link.firstChild, link);
+      link.remove();
+    }
+
+    // Find or create the action container
+    let action = tile.querySelector('.snake-action');
+    if (!action) {
+      action = document.createElement('div');
+      action.className = 'snake-action';
+      action.style.cssText = 'margin-top:8px;text-align:center;';
+      tile.appendChild(action);
+    }
+
+    if (status === 'running') {
+      action.innerHTML = '<button class="snake-btn snake-stop" style="background:#ef4444;color:#fff;border:none;border-radius:6px;padding:6px 16px;cursor:pointer;font-size:13px;">Stop ×</button>';
+      action.querySelector('.snake-stop').onclick = async (e) => {
+        e.preventDefault();
+        action.innerHTML = '<span style="color:#9aa4b2;font-size:13px;">Stopping…</span>';
+        await snakeStop();
+        // Wait briefly then re-check
+        setTimeout(async () => renderSnakeTile(await snakeStatus()), 2000);
+      };
+      // Also make the tile navigate to the game
+      tile.style.cursor = 'pointer';
+      tile.onclick = (e) => {
+        if (e.target.closest('.snake-stop')) return;
+        window.open(`https://game.${domain}`, '_blank');
+      };
+      tile.title = 'Click to open the game';
+    } else if (status === 'starting') {
+      action.innerHTML = '<span style="color:#f59e0b;font-size:13px;">⟳ Starting…</span>';
+      // Poll until running
+      setTimeout(async () => {
+        const s = await snakeStatus();
+        if (s === 'running' || s === 'starting') {
+          renderSnakeTile(s);
+        } else {
+          renderSnakeTile('stopped');
+        }
+      }, 2000);
+    } else {
+      action.innerHTML = '<button class="snake-btn snake-play" style="background:#22c55e;color:#fff;border:none;border-radius:6px;padding:6px 16px;cursor:pointer;font-size:13px;">Play Snake</button>';
+      action.querySelector('.snake-play').onclick = async (e) => {
+        e.preventDefault();
+        renderSnakeTile('starting');
+        const ok = await snakeLaunch();
+        if (ok) {
+          // Poll for readiness
+          const poll = setInterval(async () => {
+            const s = await snakeStatus();
+            if (s === 'running') {
+              clearInterval(poll);
+              renderSnakeTile('running');
+              window.open(`https://game.${domain}`, '_blank');
+            }
+          }, 1500);
+          // Timeout after 30s
+          setTimeout(() => clearInterval(poll), 30000);
+        } else {
+          renderSnakeTile('stopped');
+        }
+      };
+      tile.style.cursor = '';
+      tile.onclick = null;
+      tile.title = '';
+    }
+  };
+
+  const initSnakeTile = async () => {
+    const tile = snakeTile();
+    if (!tile) return;
+    const status = await snakeStatus();
+    renderSnakeTile(status);
+    // Re-check every 30s
+    setInterval(async () => {
+      const s = await snakeStatus();
+      renderSnakeTile(s);
+    }, 30000);
+  };
+
+  // Wait for the tile to appear (Homepage renders async)
+  const observer = new MutationObserver(() => {
+    if (snakeTile()) {
+      observer.disconnect();
+      initSnakeTile();
+    }
+  });
+  observer.observe(document.body, { subtree: true, childList: true });
+  // Also try immediately in case it's already rendered
+  initSnakeTile();
+
   // Homepage only honours the hash on a fresh load, and renders every card
   // link with target="_blank". Internal hash links (e.g. the Home "Waiting on
   // you" card → /#workshop) should switch tabs in place instead: intercept the

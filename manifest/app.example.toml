@@ -49,3 +49,4 @@ timeout_seconds = 300
 [lifecycle]
 backup = ["notes-data"]            # volumes restic must include
 update_policy = "staged"           # staged = via change pipeline | pinned = manual only
+on_demand = false                   # true = launched only on explicit request (see snake)
