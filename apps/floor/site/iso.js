@@ -28,15 +28,22 @@ const KIND_COLOR = { llm: "#ffd166", git: "#ef6461", pr: "#ef6461", issue: "#9b5
 // Wing blocks: grid origin (in tiles) + columns. The apps wing has no row
 // cap — the floor extends north as the node grows. A wing name the backend
 // invents later falls into `overflow` west of the gate rather than vanishing.
+// `level` lifts a wing onto its own visual deck (z, in "floors"): the task
+// yard sits a level above the main floor so ephemeral runs — which come and
+// go far faster than everything else — never crowd or overlap permanent
+// rooms. A pitch tighter than the main floor is fine there: yard rooms are
+// small, uniform, and capped (YARD_CAP server-side).
 const WINGS = {
-  outside: { origin: [-8.6, 2.2], cols: 1, label: "OUTSIDE" },
-  gate:    { origin: [-4.6, 0.0], cols: 2, label: "GATE" },
-  core:    { origin: [0.0, 0.0],  cols: 2, label: "CORE PLANE" },
-  ops:     { origin: [0.8, 5.0],  cols: 3, label: "OPERATIONS" },
-  bay:     { origin: [5.2, -0.8], cols: 2, label: "AGENT BAY" },
-  apps:    { origin: [-1.2, -5.4], cols: 5, label: "APPS" },
-  overflow:{ origin: [-8.6, -2.6], cols: 2, label: "ANNEX" },
+  outside: { origin: [-8.6, 2.2], cols: 1, label: "OUTSIDE", level: 0 },
+  gate:    { origin: [-4.6, 0.0], cols: 2, label: "GATE", level: 0 },
+  core:    { origin: [0.0, 0.0],  cols: 2, label: "CORE PLANE", level: 0 },
+  ops:     { origin: [0.8, 5.0],  cols: 3, label: "OPERATIONS", level: 0 },
+  bay:     { origin: [5.2, -0.8], cols: 2, label: "AGENT BAY", level: 0 },
+  apps:    { origin: [-1.2, -5.4], cols: 5, label: "APPS", level: 0 },
+  overflow:{ origin: [-8.6, -2.6], cols: 2, label: "ANNEX", level: 0 },
+  yard:    { origin: [4.4, -2.6], cols: 4, pitch: 2.0, label: "TASK YARD (level above)", level: 1 },
 };
+const LEVEL_HEIGHT = 78;   // screen px per level at zoom 1 — the "floor above"
 
 const canvas = document.getElementById("floor");
 const ctx = canvas.getContext("2d");
@@ -65,8 +72,8 @@ function sprite(kind, name) {
 }
 
 // --- projection ---------------------------------------------------------------
-function proj(gx, gy) {
-  return [(gx - gy) * (TILE_W / 2), (gx + gy) * (TILE_H / 2)];
+function proj(gx, gy, level = 0) {
+  return [(gx - gy) * (TILE_W / 2), (gx + gy) * (TILE_H / 2) - level * LEVEL_HEIGHT];
 }
 function toScreen(sx, sy) {
   return [canvas.width / 2 + (sx - cam.x) * cam.zoom,
@@ -83,25 +90,33 @@ function layout(snapshot) {
   const placed = new Map();
   for (const [wing, list] of Object.entries(byWing)) {
     const w = WINGS[wing];
+    const pitch = w.pitch || PITCH;
     list.sort((a, b) => a.name.localeCompare(b.name));
     list.forEach((r, i) => {
-      r.gx = w.origin[0] + (i % w.cols) * PITCH;
-      r.gy = w.origin[1] + Math.floor(i / w.cols) * PITCH * (wing === "apps" ? -1 : 1);
+      r.gx = w.origin[0] + (i % w.cols) * pitch;
+      r.gy = w.origin[1] + Math.floor(i / w.cols) * pitch * (wing === "apps" ? -1 : 1);
+      r.level = w.level || 0;
       placed.set(r.name, r);
     });
   }
   rooms = placed;
   edges = snapshot.edges;
-  floorMeta = { node: snapshot.node, running: snapshot.running,
-                total: snapshot.total, sources: snapshot.sources };
+  floorMeta = { node: snapshot.node, running: snapshot.running, total: snapshot.total,
+                sources: snapshot.sources, yardOverflow: snapshot.yard_overflow || 0 };
 }
 
 // --- workers ------------------------------------------------------------------
 function roomPath(a, b) {
   const A = rooms.get(a), B = rooms.get(b);
   if (!A || !B) return null;
-  const pts = [[A.gx, A.gy], [B.gx, A.gy], [B.gx, B.gy]]
-    .map(([gx, gy]) => proj(gx, gy));
+  // Same-level edges are a flat L corridor; cross-level ones (yard <-> core)
+  // ride a middle waypoint at A's level, then rise/drop to B's — reads as a
+  // lift shaft rather than a room floating mid-air.
+  const pts = [
+    proj(A.gx, A.gy, A.level),
+    proj(B.gx, A.gy, A.level),
+    proj(B.gx, B.gy, B.level),
+  ];
   let len = 0;
   for (let i = 1; i < pts.length; i++)
     len += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
@@ -117,6 +132,7 @@ function spawnWorker(kind, from, to, label) {
     path: p.pts, len: p.len, t: 0,
     speed: 55 + Math.random() * 25,        // px/s at zoom 1
     label, bob: Math.random() * Math.PI * 2,
+    roomA: from, roomB: to,
   });
   if (workers.length > 24) workers.shift();
 }
@@ -173,20 +189,49 @@ function draw(now, dt) {
     const minGx = Math.min(...members.map(r => r.gx));
     const maxGx = Math.max(...members.map(r => r.gx));
     const minGy = Math.min(...members.map(r => r.gy));
-    const [sx, sy] = proj((minGx + maxGx) / 2, minGy - PITCH * 0.62);
+    const pitch = w.pitch || PITCH;
+    const [sx, sy] = proj((minGx + maxGx) / 2, minGy - pitch * 0.62, w.level || 0);
     const [x, y] = toScreen(sx, sy);
     ctx.font = `${Math.max(9, 11 * z)}px "Avenir Next", system-ui, sans-serif`;
     ctx.fillStyle = "rgba(244, 237, 228, 0.32)";
     ctx.fillText(w.label, x, y);
   }
+  if (floorMeta.yardOverflow > 0) {
+    const w = WINGS.yard;
+    const [sx, sy] = proj(w.origin[0] + 1.5, w.origin[1] - w.pitch * 2.2, w.level);
+    const [x, y] = toScreen(sx, sy);
+    ctx.font = `${Math.max(9, 10 * z)}px "Avenir Next", system-ui, sans-serif`;
+    ctx.fillStyle = "rgba(217, 164, 65, 0.85)";
+    ctx.fillText(`+${floorMeta.yardOverflow} more task${floorMeta.yardOverflow === 1 ? "" : "s"} off-deck`, x, y);
+  }
+
+  // a translucent deck under the raised level, so "floor above" reads clearly
+  const yardMembers = [...rooms.values()].filter(r => r.level > 0);
+  if (yardMembers.length) {
+    const minGx = Math.min(...yardMembers.map(r => r.gx)) - 1;
+    const maxGx = Math.max(...yardMembers.map(r => r.gx)) + 1;
+    const minGy = Math.min(...yardMembers.map(r => r.gy)) - 1;
+    const maxGy = Math.max(...yardMembers.map(r => r.gy)) + 1;
+    const corners = [[minGx, minGy], [maxGx, minGy], [maxGx, maxGy], [minGx, maxGy]]
+      .map(([gx, gy]) => toScreen(...proj(gx, gy, yardMembers[0].level)));
+    ctx.beginPath();
+    corners.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+    ctx.closePath();
+    ctx.fillStyle = "rgba(126, 140, 181, 0.06)";
+    ctx.fill();
+    ctx.strokeStyle = "rgba(126, 140, 181, 0.25)";
+    ctx.setLineDash([3 * z, 5 * z]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
 
   for (const r of rooms.values()) {
-    const [sx, sy] = proj(r.gx, r.gy);
+    const [sx, sy] = proj(r.gx, r.gy, r.level);
     const [x, y] = toScreen(sx, sy);
     diamond(x, y, (TILE_W / 2 + 8) * z, (TILE_H / 2 + 4) * z);
     ctx.fillStyle = r.state === "running" ? "rgba(124, 224, 211, 0.10)"
-      : r.state === "exited" ? "rgba(239, 100, 97, 0.10)"
-      : "rgba(244, 237, 228, 0.05)";
+      : r.state === "exited" ? "rgba(239, 100, 97, 0.07)"
+      : "rgba(244, 237, 228, 0.04)";
     ctx.fill();
     ctx.strokeStyle = hovered === r ? "#d9a441" : "rgba(244, 237, 228, 0.14)";
     ctx.lineWidth = hovered === r ? 1.6 : 1;
@@ -210,42 +255,58 @@ function draw(now, dt) {
     ctx.setLineDash([]);
   }
 
-  // depth-sorted rooms + workers
+  // depth-sorted rooms + workers. A raised level is its own deck in front of
+  // everything below it, so bias its depth well past the main floor's range
+  // rather than interleaving by gx+gy (which would z-fight across decks).
   const drawables = [];
   for (const r of rooms.values())
-    drawables.push({ depth: r.gx + r.gy, room: r });
+    drawables.push({ depth: r.gx + r.gy + r.level * 1000, room: r });
   for (const w of workers) {
     const [px, py] = workerPos(w);
-    // invert projection depth: sy relates to gx+gy directly
-    drawables.push({ depth: py / (TILE_H / 2) + 0.6, worker: w, px, py });
+    const level = Math.max(rooms.get(w.roomA)?.level || 0, rooms.get(w.roomB)?.level || 0);
+    drawables.push({ depth: py / (TILE_H / 2) + 0.6 + level * 1000, worker: w, px, py });
   }
   drawables.sort((a, b) => a.depth - b.depth);
 
   for (const d of drawables) {
     if (d.room) {
       const r = d.room;
-      const [sx, sy] = proj(r.gx, r.gy);
+      const [sx, sy] = proj(r.gx, r.gy, r.level);
       const [x, y] = toScreen(sx, sy);
       const s = (SIZE_SCALE[r.size] || 1) * z;
+      const dark = r.state !== "running";
       if (r.state === "running") {          // breathing glow
         const pulse = 0.55 + 0.45 * Math.sin(now / 900 + r.gx * 3.1);
         diamond(x, y, (TILE_W / 2 + 2) * z, (TILE_H / 2 + 1) * z);
         ctx.fillStyle = `rgba(255, 209, 102, ${0.05 + 0.05 * pulse})`;
         ctx.fill();
       }
+      if (dark) {
+        // Fully desaturated + darkened: a stopped room should read as
+        // "off" at a glance, not just slightly dimmer than a running one.
+        ctx.save();
+        ctx.filter = "grayscale(1) brightness(0.5) contrast(0.9)";
+        ctx.globalAlpha = 0.72;
+      }
       const img = sprite("decor", r.archetype);
       const ok = img.complete && !img.failed && img.naturalWidth;
       const fb = ok ? img : sprite("decor", "workshop");
       if (fb.complete && fb.naturalWidth)
         ctx.drawImage(fb, x - 64 * s, y - 80 * s, 128 * s, 128 * s);
-      if (r.state !== "running") {          // dark rooms are visibly dark
+      if (dark) {
+        ctx.restore();                       // drop the grayscale filter…
         diamond(x, y, (TILE_W / 2 + 8) * z, (TILE_H / 2 + 4) * z);
-        ctx.fillStyle = "rgba(29, 34, 49, 0.45)";
+        ctx.fillStyle = "rgba(15, 17, 26, 0.55)";   // …then a flat shade on top
         ctx.fill();
       }
       ctx.font = `${Math.max(8, 10.5 * z)}px "Avenir Next", system-ui, sans-serif`;
-      ctx.fillStyle = hovered === r ? "#d9a441" : "rgba(244, 237, 228, 0.78)";
-      ctx.fillText(r.label, x, y + (TILE_H / 2 + 16) * z);
+      ctx.fillStyle = hovered === r ? "#d9a441"
+        : dark ? "rgba(180, 186, 204, 0.45)" : "rgba(244, 237, 228, 0.78)";
+      const suffix = r.state === "running" ? "" : r.state === "exited" ? " · stopped"
+        : r.state === "unpolled" ? "" : ` · ${r.state}`;
+      const cap = r.wing === "yard" ? 12 : 22;
+      const shortLabel = r.label.length > cap ? r.label.slice(0, cap - 1) + "…" : r.label;
+      ctx.fillText(shortLabel + suffix, x, y + (TILE_H / 2 + 16) * z);
       if (r.archetype === "reactor" && r.state === "running" && Math.random() < dt * 3)
         sparks.push({ x: sx, y: sy - 52, vx: (Math.random() - 0.5) * 30,
                       vy: -35 - Math.random() * 25, life: 1 });
@@ -353,19 +414,25 @@ canvas.addEventListener("pointermove", e => {
   }
   hovered = null;
   for (const r of rooms.values()) {
-    const [sx, sy] = proj(r.gx, r.gy);
+    const [sx, sy] = proj(r.gx, r.gy, r.level);
     const [x, y] = toScreen(sx, sy);
     if (Math.abs(px - x) < 55 * cam.zoom && Math.abs(py - (y - 25 * cam.zoom)) < 55 * cam.zoom)
       hovered = r;
   }
   if (hovered) {
+    const dot = hovered.state === "running" ? "#8ac926"
+      : hovered.state === "exited" ? "#ef6461" : "#5b667e";
+    const stateLabel = hovered.state === "running" ? "running"
+      : hovered.state === "exited" ? "stopped" : hovered.state;
     tip.style.display = "block";
     tip.style.left = Math.min(e.clientX + 16, innerWidth - 280) + "px";
     tip.style.top = (e.clientY + 12) + "px";
-    tip.innerHTML = `<b>${hovered.label}</b> <span class="state">· ${hovered.state}`
-      + `${hovered.status ? " · " + hovered.status : ""}</span>`
+    tip.innerHTML = `<b>${hovered.label}</b>`
+      + `<div class="state"><span class="dot" style="background:${dot}"></span>`
+      + `${stateLabel}${hovered.status ? " · " + hovered.status : ""}</div>`
       + `<div class="blurb">${hovered.blurb || ""}</div>`
-      + (hovered.ring != null ? `<div class="blurb">ring ${hovered.ring}</div>` : "");
+      + (hovered.ring != null ? `<div class="blurb">ring ${hovered.ring}</div>` : "")
+      + (hovered.level > 0 ? `<div class="blurb">sub-level: task yard</div>` : "");
   } else tip.style.display = "none";
 });
 canvas.addEventListener("pointerup", e => {

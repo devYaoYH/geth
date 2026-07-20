@@ -99,6 +99,8 @@ ARCHETYPE_RULES = [
 ]
 
 # needs.<key> in a manifest → an edge to this room, drawn automatically.
+YARD_CAP = 12  # ephemeral task rooms shown on the sub-level; rest -> overflow counter
+
 NEEDS_TARGETS = {
     "llm": "litellm",
     "git": "forgejo",
@@ -311,7 +313,23 @@ def build_snapshot(services, containers, sources):
             if target:
                 edges.append({"from": name, "to": target, "kind": need_key})
 
-    # containers nobody claimed: ephemeral tenants and -db sidecars
+    # containers nobody claimed: ephemeral task runs and -db sidecars.
+    # Ephemeral runs (scripts/run-task.sh names them task-<brief>-<timestamp>)
+    # come and go quickly and would overrun any fixed wing on the main floor,
+    # so they get their own capped sub-level ("yard") instead of a room each —
+    # see YARD_CAP and the "yard" wing in iso.js (a mezzanine deck, not a room
+    # among the permanent ones).
+    yard_names = sorted(n for n in containers if n.startswith("task-") and n not in known)
+    overflow = max(0, len(yard_names) - YARD_CAP)
+    for name in yard_names[:YARD_CAP]:
+        brief = name.removeprefix("task-")
+        brief = brief.rsplit("-", 2)[0] if brief.count("-") >= 2 else brief  # drop timestamp
+        brief = brief[:16]
+        add_room(name, "yard", "pad", "small", brief or name,
+                 "ephemeral task — one container, one budget, one expiry")
+        edges.append({"from": name, "to": "litellm", "kind": "llm"})
+        edges.append({"from": name, "to": "forgejo", "kind": "git"})
+
     for name in sorted(containers):
         if name in known:
             continue
@@ -323,7 +341,7 @@ def build_snapshot(services, containers, sources):
                 edges.append({"from": parent, "to": name, "kind": "data"})
         else:
             add_room(name, "bay", "pad", "small", name,
-                     "ephemeral tenant — one container, one task, one budget")
+                     "unlabeled tenant container")
             edges.append({"from": name, "to": "litellm", "kind": "llm"})
             edges.append({"from": name, "to": "forgejo", "kind": "git"})
 
@@ -351,6 +369,7 @@ def build_snapshot(services, containers, sources):
         "generated_at": int(time.time()),
         "rooms": rooms, "edges": uniq, "sources": sources,
         "running": running, "total": len(rooms),
+        "yard_overflow": overflow,
     }
 
 
