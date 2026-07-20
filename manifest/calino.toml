@@ -1,7 +1,7 @@
 # Calino — a CalDAV web client for viewing and interacting with calendar entries.
 # Upstream: github.com/Ivan-Malinovski/calino (MIT), mirrored at mirrors/calino.
-# Pinned to commit 8e21e96ec842 (v0.22.7). Builds from the upstream Dockerfile
-# via compose git context; no local source in this repo.
+# Pinned to commit 8e21e96ec842 (v0.22.7). Image built by scripts/build-mirrored.sh
+# from the upstream Dockerfile at deploy time.
 
 [app]
 name = "calino"
@@ -30,4 +30,13 @@ timeout_seconds = 15
 [lifecycle]
 backup = []
 update_policy = "pinned"    # pinned to upstream commit 8e21e96ec842; update by
-                            # changing the commit SHA in compose.yaml
+                            # changing the ref in [build] section
+
+[build]
+# Mirror repo (scripts/mirror.sh mirros/calino), pinned commit, and build
+# args. The generic scripts/build-mirrored.sh reads this section to build
+# the image on the host at deploy time (no BuildKit network issues).
+repo = "mirrors/calino"
+ref = "8e21e96ec842"
+args.VITE_SITE_URL = "https://calino.${NODE_DOMAIN}"
+args.CALINO_SELF_HOSTED = "true"

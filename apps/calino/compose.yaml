@@ -4,8 +4,9 @@
 # attributes exactly; compose merges.
 #
 # Source: mirrors/calino (local mirror of github.com/Ivan-Malinovski/calino),
-# MIT license, v0.22.7, pinned to commit 8e21e96ec842. The upstream ships its
-# own Dockerfile; we build from it directly via git context.
+# MIT license, v0.22.7, pinned to commit 8e21e96ec842. The image is built
+# by scripts/build-mirrored.sh (triggered by deploy.sh); this fragment only
+# declares the resulting tag.
 
 services:
   # --- apps ring 1: calino ---------------------------------------------------
@@ -13,15 +14,9 @@ services:
   # server. Credentials are entered by the user in the browser and stored in
   # localStorage (never on the wire beyond the CalDAV fetch itself). The DAV
   # proxy on the calino route (/dav/* -> radicale:5232) avoids CORS entirely.
+  # Built from the upstream mirror by scripts/build-mirrored.sh at deploy time.
   calino:
     profiles: [apps]
-    build:
-      # Upstream Dockerfile, pinned to the mirrored commit. The Docker daemon
-      # accesses the local mirror (anonymous pull allowed) on the internal net.
-      context: "http://forgejo:3000/mirrors/calino.git#8e21e96ec842"
-      args:
-        VITE_SITE_URL: "https://calino.${NODE_DOMAIN}"
-        CALINO_SELF_HOSTED: "true"
     image: sovereign-node/calino:0.22.7
     container_name: calino
     restart: unless-stopped
