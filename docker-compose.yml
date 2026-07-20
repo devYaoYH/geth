@@ -32,6 +32,7 @@ include:
     env_file: secrets/search-broker.env
   - path: apps/floor/compose.yaml
     env_file: secrets/floor.env
+  - path: apps/calino/compose.yaml
 
 networks:
   edge:

@@ -1,0 +1,12 @@
+# calino's door — imported by the root Caddyfile (import apps/*/route.caddy),
+# so ring guards and the (authed) snippet are already defined when this loads.
+# Ring 1 — a CalDAV web client served alongside Radicale (profile: apps)
+#
+# This is a separate subdomain from the Radicale CalDAV endpoint at cal.<domain>.
+# The Calino client connects to the user's Radicale server directly from the
+# browser, so credentials stay in localStorage and never pass through the server.
+
+calino.{$NODE_DOMAIN} {
+	import ring1
+	reverse_proxy calino:8080
+}

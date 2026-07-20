@@ -1,0 +1,29 @@
+# Calino — a CalDAV web client for viewing and interacting with calendar entries.
+# Built locally from apps/calino/site; no external image needed.
+
+[app]
+name = "calino"
+version = "0"
+description = "CalDAV web client; ring 1 behind the door"
+image = "sovereign-node/calino"
+ring = 1
+
+[service]
+port = 8080
+health = "/"
+
+[needs]
+# No internal calls; the browser connects to Radicale directly over CalDAV with
+# credentials stored in localStorage. No server-side auth passthrough needed.
+
+[resources]
+volumes = []
+database = "none"
+
+[tests]
+command = "curl -fsS $APP_URL/"
+timeout_seconds = 15
+
+[lifecycle]
+backup = []
+update_policy = "staged"

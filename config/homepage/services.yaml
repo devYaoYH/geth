@@ -60,6 +60,13 @@
         server: sovereign-node
         container: radicale
         siteMonitor: http://radicale:5232
+    - Calino:
+        icon: mdi-calendar-text
+        href: https://calino.{{HOMEPAGE_VAR_NODE_DOMAIN}}
+        description: calendar web UI
+        server: sovereign-node
+        container: calino
+        siteMonitor: http://calino:8080/
     - Notes:
         icon: memos.png
         href: https://notes.{{HOMEPAGE_VAR_NODE_DOMAIN}}

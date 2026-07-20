@@ -1,0 +1,23 @@
+# calino — an app fragment, merged into the node stack by the root
+# docker-compose.yml `include:` list. This file owns everything calino:
+# service, the networks it joins. Shared networks re-declare the root's
+# attributes exactly; compose merges.
+
+services:
+  # --- apps ring 1: calino ---------------------------------------------------
+  # A CalDAV web client (static HTML/JS) served by python http.server. Built
+  # locally from ./site (no internet needed; upstream image already cached).
+  # The app connects to the Radicale CalDAV server — credentials are entered
+  # by the user in the browser and stored in localStorage (never on the wire
+  # beyond the CalDAV fetch itself).
+  calino:
+    profiles: [apps]
+    build: ./site
+    image: sovereign-node/calino:local
+    container_name: calino
+    restart: unless-stopped
+    networks: [front]
+
+networks:
+  front:
+    internal: true
