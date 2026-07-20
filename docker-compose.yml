@@ -57,6 +57,11 @@ networks:
     # The broker and its egress companion meet here. Agents cannot join this
     # network, and the egress companion is the only search service on edge.
     internal: true
+  launcher-docker:
+    # Scoped docker socket proxy for the on-demand launcher. Only the launcher
+    # and launcher-docker-proxy reside here — no routed container touches the
+    # raw socket directly.
+    internal: true
 
 volumes:
   caddy_data:
@@ -266,6 +271,26 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks: [dockerwatch]
+
+  # Scoped docker socket proxy for the on-demand launcher. The launcher needs
+  # compose operations (build, start, stop, inspect) so this proxy allows the
+  # minimal set of docker API operations needed for that. Only the launcher
+  # reaches this proxy, on the isolated launcher-docker network.
+  launcher-docker-proxy:
+    image: tecnativa/docker-socket-proxy:latest@sha256:1f3a6f303320723d199d2316a3e82b2e2685d86c275d5e3deeaf182573b47476
+    container_name: launcher-docker-proxy
+    restart: unless-stopped
+    environment:
+      CONTAINERS: "1"
+      IMAGES: "1"
+      NETWORKS: "1"
+      VOLUMES: "1"
+      POST: "1"
+      BUILD: "1"
+      INFO: "1"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [launcher-docker]
 
   # --- the agent runtime slot, first tenant -----------------------------------
   # Claude Code in a jail (docs/AGENT.md). Interactive:

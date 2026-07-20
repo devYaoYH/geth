@@ -225,7 +225,7 @@
         window.open(`https://game.${domain}`, '_blank');
       };
       tile.title = 'Click to open the game';
-    } else if (status === 'starting' || status === 'starting') {
+    } else if (status === 'starting') {
       action.innerHTML = '<span style="color:#f59e0b;font-size:13px;">⟳ Starting…</span>';
       // Poll until running
       setTimeout(async () => {

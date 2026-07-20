@@ -20,16 +20,21 @@ services:
       ALLOWED_ON_DEMAND_APPS: snake
       LAUNCHER_API_KEY: ${LAUNCHER_API_KEY:-}
       AUDIT_LOG: /var/log/launcher/audit.jsonl
+      # Route docker CLI through the scoped proxy instead of the raw socket.
+      DOCKER_HOST: tcp://launcher-docker-proxy:2375
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
       # Mount the project root read-only so docker compose can find the compose
-      # files and build context for on-demand services.
-      - .:/srv/compose:ro
+      # files and build context for on-demand services. Uses ../.. because under
+      # Compose include: relative paths resolve against the included file's
+      # directory (apps/launcher/), not the repo root.
+      - ../..:/srv/compose:ro
       - launcher_audit:/var/log/launcher
-    networks: [front]
+    networks: [front, launcher-docker]
 
 networks:
   front:
+    internal: true
+  launcher-docker:
     internal: true
 
 volumes:

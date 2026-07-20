@@ -74,7 +74,7 @@ def container_status(service):
 def check_api_key(headers):
     """Validate the X-API-Key header. Returns actor string or None."""
     if not LAUNCHER_API_KEY:
-        return "internal"  # no key configured = allow all ring1 callers
+        return None  # fail closed — no key configured = no auth possible
     key = headers.get("X-API-Key", "")
     if key == LAUNCHER_API_KEY:
         return "homepage"
@@ -111,7 +111,7 @@ class LauncherHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         parts = self.path.strip("/").split("/")
-        actor = check_api_key(self.headers) or self.headers.get("X-Forwarded-For", "unknown")
+        actor = check_api_key(self.headers)
 
         if len(parts) == 3 and parts[0] == "api" and parts[1] == "status":
             app = parts[2]

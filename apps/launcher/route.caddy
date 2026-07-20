@@ -5,5 +5,10 @@
 
 launch.{$NODE_DOMAIN} {
 	import ring1
-	reverse_proxy launcher:8081
+
+	# Inject the shared API key server-side — the browser never sees it.
+	# The launcher uses this to authenticate lifecycle requests.
+	reverse_proxy launcher:8081 {
+		header_up X-API-Key {$LAUNCHER_API_KEY}
+	}
 }
