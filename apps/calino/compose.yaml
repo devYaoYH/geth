@@ -4,7 +4,7 @@
 # attributes exactly; compose merges.
 #
 # Source: mirrors/calino (local mirror of github.com/Ivan-Malinovski/calino),
-# MIT license, v0.22.7, pinned to commit 8e21e96ec842. The image is built
+# MIT license, v0.22.7, pinned to commit 8e21e96ec842a426e714f78ff1f9cfa3e297c03b. The image is built
 # by scripts/build-mirrored.sh (triggered by deploy.sh); this fragment only
 # declares the resulting tag.
 

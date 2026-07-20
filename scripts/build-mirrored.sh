@@ -12,36 +12,22 @@
 #   ./scripts/build-mirrored.sh            # build all missing images
 #   ./scripts/build-mirrored.sh calino     # build only calino
 #
-# Dependencies: git, docker, python3 (for TOML parsing).
+# Dependencies: git, docker, python3 (for TOML parsing + env expansion).
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+# Source .env so ${VAR} references in build arg values expand correctly.
+# The mirror.sh sibling uses the same pattern.
+[[ -f .env ]] && set -a && source .env && set +a
+
 BUILD_DIR=$(mktemp -d)
 trap 'rm -rf "$BUILD_DIR"' EXIT
-
-# Parse a TOML [build] section using a tiny Python snippet. We keep the full
-# parse so nested tables (e.g. [build.args]) work correctly.
-parse_build() {
-  python3 -c "
-import sys, tomllib
-with open(sys.argv[1], 'rb') as f:
-    m = tomllib.load(f)
-b = m.get('build')
-if not b:
-    sys.exit(0)
-# Print the values we need, shell-safe (one per line).
-# repo, ref, then key=value for each arg.
-print(b.get('repo', ''))
-print(b.get('ref', ''))
-for k, v in b.get('args', {}).items():
-    print(f'{k}={v}')
-" "$1"
-}
 
 BUILT=0
 SKIPPED=0
 
+# Collect the TOML files to process.
 toml_files=(manifest/*.toml)
-# If a specific app was requested, filter to that file.
 if [[ $# -gt 0 ]]; then
   toml_files=()
   for app in "$@"; do
@@ -52,24 +38,79 @@ fi
 for toml in "${toml_files[@]}"; do
   [[ -f "$toml" ]] || continue
 
-  # Read the [app] section for the image name and the [build] section.
-  IMAGE=$(python3 -c "
-import sys, tomllib
+  # Run a single Python process per TOML file. It:
+  #   - reads the [app] section for the image name
+  #   - reads the [build] section for repo, ref, and build args
+  #   - validates that ref is a full 40-char SHA
+  #   - expands ${VAR} in arg values from the current environment
+  #   - outputs one tab-separated line: image\trepo\tref\targ1\targ2\t...
+  #   - exits with code 0 only when a build is needed
+  #   - exits with code 2 (no build section) or 3 (empty fields) to skip
+  OUTPUT=$(python3 -c "
+import sys, tomllib, os, re, string
+
 with open('$toml', 'rb') as f:
     m = tomllib.load(f)
-print(m.get('app', {}).get('image', ''))
-")
 
-  # Read build config (may be empty = skip).
-  BUILD_LINES=$(parse_build "$toml") || true
-  [[ -z "$BUILD_LINES" ]] && continue
+image = m.get('app', {}).get('image', '')
+b = m.get('build')
+if not b:
+    sys.exit(2)          # no [build] section, skip
 
-  readarray -t lines <<<"$BUILD_LINES"
-  REPO="${lines[0]}"
-  REF="${lines[1]}"
-  ARGS=("${lines[@]:2}")
+repo = b.get('repo', '')
+ref  = b.get('ref', '')
 
-  [[ -z "$REPO" || -z "$REF" || -z "$IMAGE" ]] && continue
+if not repo or not ref or not image:
+    sys.exit(3)          # missing required field, skip
+
+# Require full 40-char commit SHA (operator review blocker 3).
+if not re.fullmatch(r'[0-9a-f]{40}', ref):
+    print(f'ERROR: [build].ref \"{ref}\" in $toml is not a 40-char hex SHA', file=sys.stderr)
+    sys.exit(4)
+
+# Expand ${VAR} references in arg values from the environment
+# (operator review blocker 4).  An unset variable raises KeyError
+# (hard failure, not silent empty string).
+args_line = []
+for k, v in b.get('args', {}).items():
+    expanded = string.Template(v).substitute(os.environ)
+    args_line.append(f'{k}={expanded}')
+
+# Tab-separated output: image\trepo\tref\targ1\targ2\t...
+print('\t'.join([image, repo, ref] + args_line))
+" 2>&1) || true
+
+  EXIT_CODE=$?
+  # Exit code 2 = no [build] section, skip silently.
+  if [[ "$EXIT_CODE" -eq 2 ]]; then
+    continue
+  fi
+  # Exit code 3 = missing required field, skip with a note.
+  if [[ "$EXIT_CODE" -eq 3 ]]; then
+    echo "  build-mirrored: skipping $toml (missing image, repo, or ref)"
+    continue
+  fi
+  # Exit code 4 = invalid ref (message already on stderr).
+  if [[ "$EXIT_CODE" -eq 4 ]]; then
+    continue
+  fi
+  # Non-zero for any other reason — show Python's output and abort.
+  if [[ "$EXIT_CODE" -ne 0 ]]; then
+    echo "$OUTPUT"
+    exit "$EXIT_CODE"
+  fi
+
+  # Shell-check: the Python output must have at least 3 tab-separated fields.
+  printf '%s' "$OUTPUT" | python3 -c "
+import sys
+line = sys.stdin.read()
+parts = line.split('\t')
+if len(parts) < 3:
+    print('ERROR: malformed build config output', file=sys.stderr)
+    sys.exit(1)
+" || { echo "$OUTPUT"; exit 1; }
+
+  IFS=$'\t' read -r IMAGE REPO REF ARGS_REST <<<"$OUTPUT"
 
   echo "  build-mirrored: $IMAGE ($REPO @ $REF)"
 
@@ -81,23 +122,30 @@ print(m.get('app', {}).get('image', ''))
   fi
 
   echo "    cloning $REPO @ $REF ..."
-  git clone --depth 1 --branch "$REF" "https://git.localhost/$REPO.git" "$BUILD_DIR/$REPO" 2>&1 | sed 's/^/    /'
-  # If the ref is a commit SHA (not a branch), --depth 1 --branch won't work.
-  # Fall back: fetch the specific commit.
-  if [[ ! -d "$BUILD_DIR/$REPO/.git" ]]; then
-    git init "$BUILD_DIR/$REPO" >/dev/null 2>&1
-    git -C "$BUILD_DIR/$REPO" remote add origin "https://git.localhost/$REPO.git"
-    git -C "$BUILD_DIR/$REPO" fetch origin "$REF" --depth 1 2>&1 | sed 's/^/    /'
-    git -C "$BUILD_DIR/$REPO" checkout "$REF" 2>&1 | sed 's/^/    /'
-  fi
+
+  # Operator review blocker 2: git clone --depth 1 --branch <sha> fails for
+  # a commit SHA.  Go straight to init + fetch-by-SHA + checkout.
+  CLONE_DIR="$BUILD_DIR/$REPO"
+  mkdir -p "$CLONE_DIR"
+  git init "$CLONE_DIR" >/dev/null 2>&1
+  git -C "$CLONE_DIR" remote add origin "https://git.localhost/$REPO.git"
+  git -C "$CLONE_DIR" fetch origin "$REF" --depth 1 2>&1 | sed 's/^/    /'
+  git -C "$CLONE_DIR" checkout "$REF" 2>&1 | sed 's/^/    /'
 
   echo "    building $IMAGE ..."
-  # Build args: split KEY=VALUE pairs.
-  BUILD_ARGS=()
-  for arg in "${ARGS[@]}"; do
-    BUILD_ARGS+=(--build-arg "$arg")
-  done
-  docker build "${BUILD_ARGS[@]}" -t "$IMAGE" "$BUILD_DIR/$REPO" 2>&1 | sed 's/^/    /'
+
+  # Operator review blocker 1: no arrays — ARGS_REST is a (possibly empty)
+  # tab-separated string of KEY=VALUE pairs.  Convert tabs to
+  # ' --build-arg KEY=VALUE' and pass through eval.  This is safe because
+  # the argument strings are generated by our own Python (not user input)
+  # and are simple KEY=VALUE pairs that contain spaces only in the value.
+  if [[ -n "$ARGS_REST" ]]; then
+    ARGS_FLAGS=$(printf ' --build-arg %s' "$ARGS_REST")
+    # shellcheck disable=SC2086  # intentional word-splitting for flags
+    eval docker build $ARGS_FLAGS -t "$IMAGE" "$CLONE_DIR" 2>&1 | sed 's/^/    /'
+  else
+    docker build -t "$IMAGE" "$CLONE_DIR" 2>&1 | sed 's/^/    /'
+  fi
 
   echo "    built $IMAGE"
   BUILT=$((BUILT + 1))
