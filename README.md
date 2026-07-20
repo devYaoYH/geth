@@ -1,8 +1,12 @@
-# sovereign-node
+# Geth — Personal sovereign cloud assistant
 
-A personal sovereign cloud: self-hosted identity, everyday services, and tenant
-agents,
-running on hardware you own, behind a front door you control.
+Geth is a personal cloud that works for you instead of extracting from you:
+your data, work, and digital life stay on hardware you control, while an
+assistant helps you pull in only what you choose and shape software around how
+you actually live. It makes personal tools cheap to adapt or create, without
+asking you to trade away ownership or trust an agent with the keys to your
+house—security comes from explicit identity, scoped credentials, and hard
+network boundaries.
 
 This is the **Tier 3 MVP** — the compute-box profile for people who already have a
 domain and are comfortable with Docker. See `docs/PHILOSOPHY.md` for why this exists,
