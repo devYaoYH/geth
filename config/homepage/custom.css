@@ -62,6 +62,13 @@ html.alodium-chatbar-open #page_container { padding-bottom: 11rem; }
   padding: 0.72rem 1rem !important;
 }
 
+/* The tab bar container must stretch to cover the full height of the tallest
+   tab button — otherwise the background div ends short and the bottom of each
+   tab bleeds through as a transparent strip. */
+[role="tablist"] {
+  align-items: stretch;
+}
+
 .alodium-tab-icon {
   display: inline-flex;
   flex: 0 0 auto;
@@ -226,7 +233,7 @@ html.alodium-chatbar-open #page_container { padding-bottom: 11rem; }
 .service:hover { transform: translateY(-2px); }
 
 .service .service-card {
-  height: calc(100% - 0.5rem);   /* fill the stretched row, minus its mb-2 */
+  height: 100%;                   /* fill the stretched row completely */
   border: 1px solid var(--alodium-border);
   border-radius: 0.8rem;
   background: var(--alodium-surface);
@@ -287,9 +294,11 @@ html.alodium-chatbar-open #page_container { padding-bottom: 11rem; }
    state that the native docker dot cannot. */
 .alodium-ondemand-card { position: relative; }
 
-/* Suppress Homepage's native container status/stats toggle on the on-demand
-   tile — the launcher dot above is the single source of truth here. */
+/* Suppress Homepage's native container status/stats toggle AND site monitor
+   on the on-demand tile — the launcher dot above is the single source of
+   truth here. Both must be hidden to prevent double indicators. */
 #snake-tile .service-container { display: none; }
+#snake-tile .service-site-monitor { display: none; }
 
 .alodium-ondemand {
   position: absolute;
@@ -359,4 +368,5 @@ html.alodium-chatbar-open #page_container { padding-bottom: 11rem; }
   .alodium-chatbar__composer button { width: 100%; }
   html.alodium-chatbar-open #page_container { padding-bottom: 13rem; }
   [role="tab"] { min-height: 3.45rem; padding: 0.78rem 0.85rem !important; }
+  [role="tablist"] { min-height: 3.45rem; }
 }
