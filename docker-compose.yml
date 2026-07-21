@@ -249,6 +249,10 @@ services:
       OAUTH2_PROXY_CLIENT_SECRET: ${OAUTH2_PROXY_CLIENT_SECRET:-}
       OAUTH2_PROXY_COOKIE_SECRET: ${OAUTH2_PROXY_COOKIE_SECRET:-}   # openssl rand -base64 32 | head -c 32
       OAUTH2_PROXY_COOKIE_DOMAINS: .${NODE_DOMAIN}
+      # Never accept a post-login redirect to an arbitrary host. Every
+      # shimmed browser surface must be named here (and in Pocket ID's
+      # callback list, minted by sso-setup.sh).
+      OAUTH2_PROXY_WHITELIST_DOMAINS: cal.${NODE_DOMAIN},calino.${NODE_DOMAIN}
       OAUTH2_PROXY_EMAIL_DOMAINS: "*"
       OAUTH2_PROXY_HTTP_ADDRESS: 0.0.0.0:4180
       OAUTH2_PROXY_REVERSE_PROXY: "true"

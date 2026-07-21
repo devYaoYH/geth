@@ -35,6 +35,9 @@ Credentials are split by blast radius, and every layer is an allowlist:
 `sso-setup.sh` stays the single door-keeper: one idempotent command, one
 place where the door's shape is legible. It routes what it mints — app
 client pairs into `secrets/<app>.env`, node-plane values into `.env`.
+`scripts/deploy.sh` reruns it automatically when a browser surface, the
+door, or the authshim configuration changes, so a merged callback cannot be
+left unregistered on the live node.
 
 ## Three patterns for taking in the door's auth
 
@@ -94,8 +97,9 @@ oauth2-proxy (profile `authshim`) is an OIDC client of Pocket ID; Caddy
    verified browser cookie is present — those clients cannot follow OIDC
    redirects, and their credential plane remains the app's business.
 3. New shimmed app: append its `https://<host>/oauth2/callback` to the
-   oauth2-proxy client's callback URLs in Pocket ID; the shim infers the
-   per-host redirect from `X-Forwarded-Host`.
+   oauth2-proxy client's callback URLs in Pocket ID, and add its host to the
+   proxy's explicit redirect allow-list; the shim infers the per-host
+   redirect from `X-Forwarded-Host`.
 4. The copied `X-Auth-Request-User` / `X-Auth-Request-Email` headers are
    available if the app can trust asserted identity; gating at the door
    works even when it can't.

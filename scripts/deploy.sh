@@ -90,6 +90,16 @@ if [[ -n "$RUNNING" ]]; then
   docker compose up -d $RUNNING
 fi
 
+# SSO has one host-side source of truth: Pocket ID's client callbacks and the
+# local-dev compose override are derived by sso-setup.sh.  A merged browser
+# surface or door/proxy change therefore must refresh that state before its
+# first visit.  This is deliberately conditional: the setup touches the IdP,
+# so unrelated deploys do not perform external configuration work.
+if printf '%s\n' "$CHANGED" | grep -qE '^(scripts/sso-setup\.sh|docker-compose\.yml|caddy/Caddyfile|apps/[^/]+/(compose\.yaml|route\.caddy))$'; then
+  echo "   refreshing SSO wiring (callback or proxy configuration changed)"
+  ./scripts/sso-setup.sh
+fi
+
 # 6. Bind-mounted CONTENT changes don't recreate containers — compose only
 #    diffs the service spec. Caddy gets a validated reload (routes are its
 #    config); any app whose apps/<name>/ files changed beyond compose.yaml/
