@@ -64,7 +64,7 @@ paths:
           in: path
           required: true
           schema: { type: string }
-          description: Docker container name (e.g. "agent", "task-fix-issue-23-1721...")
+          description: Docker container name (e.g. "agent", "task-issue-23-1721...")
       responses:
         "200":
           description: Filtered log stream (text/plain, chunked transfer encoding)

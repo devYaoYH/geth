@@ -459,6 +459,10 @@ canvas.addEventListener("wheel", e => {
 const LOGGABLE_WINGS = new Set(["bay", "yard"]);
 const LOGGABLE_NAMES = new Set(["agent", "doorbell-runner"]);
 
+// Spinner runes (Braille + ASCII) — matches the server-side _SPINNER_CHARS.
+// Used to visually dim spinner frames in the log panel.
+const _SPINNER_RE = /^[⠁-⠿\-\\|\/]/;
+
 let logReader = null;   // active ReadableStreamDefaultReader, if any
 
 function isLoggable(room) {
@@ -497,7 +501,7 @@ async function openLogPanel(room) {
       partial = lines.pop();          // last fragment, may be incomplete
       for (const line of lines) {
         const span = document.createElement("span");
-        span.className = "logline";
+        span.className = "logline" + (_SPINNER_RE.test(line) ? " spinner" : "");
         span.textContent = line;
         logBody.appendChild(span);
         // keep the body from growing forever

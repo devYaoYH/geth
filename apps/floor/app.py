@@ -49,6 +49,14 @@ WATCHED_REPOS = [r for r in (
     os.environ.get("FLOOR_COORDINATION_REPO", "operator/coordination"),
 ) if r]
 
+# Server-side loggable container enforcement (matches frontend isLoggable).
+# A container must match one of the exact names or one of the prefixes to be
+# streamable.  This prevents arbitrary log exfiltration from sensitive
+# containers (litellm, caddy, authentik, etc.) even from behind the operator
+# ring.
+LOGGABLE_CONTAINER_NAMES = frozenset({"agent", "assistant", "doorbell-runner"})
+LOGGABLE_CONTAINER_PREFIXES = ("task-",)
+
 # --- the semantic map ---------------------------------------------------------
 # Core plane rooms (things that exist as containers but publish no manifest).
 # Registry manifests are the source of truth for apps; this catalog only
@@ -420,18 +428,37 @@ def _is_spinner(line: str) -> bool:
     return bool(stripped) and stripped[0] in _SPINNER_CHARS
 
 
+def _inspect_container_tty(container: str) -> bool:
+    """Return True if the container was created with a TTY (no Docker
+    multiplexed frame headers in its log stream)."""
+    try:
+        info = http_json(f"{DOCKER_URL}/containers/{container}/json")
+        return bool((info.get("Config") or {}).get("Tty", False))
+    except (urllib.error.URLError, OSError, ValueError):
+        # If we can't inspect, assume non-TTY (the safer default — the
+        # multiplexed parser will try to consume the 8-byte header; if the
+        # stream is actually raw the first frame will be garbage but the
+        # connection won't stall, which is better than the reverse).
+        return False
+
+
 def _stream_container_logs(container: str, tail: int = 200):
     """Generator: yields filtered log lines from docker-proxy.
 
     Docker's multiplexed log stream prefixes every frame with an 8-byte
-    header: [stream_type(1), 0,0,0, size(4)]. We strip that header and
-    re-yield complete lines, skipping repetitive spinner frames.
+    header: [stream_type(1), 0,0,0, size(4)] — but ONLY when the container
+    was created without a TTY (e.g. -d or no -t).  TTY containers stream
+    raw text.  We inspect Config.Tty once and choose the right parser.
     """
+    is_tty = _inspect_container_tty(container)
     url = (f"{DOCKER_URL}/containers/{container}/logs"
            f"?stdout=1&stderr=1&follow=1&tail={tail}")
     try:
         req = urllib.request.Request(url)
-        resp = urllib.request.urlopen(req, timeout=2)
+        # No socket-level read timeout: in follow mode a quiet container
+        # would trip timeout=2 almost immediately.  Connection setup is
+        # still bounded by the OS TCP connect timeout (~21 s on Linux).
+        resp = urllib.request.urlopen(req, timeout=None)
     except (urllib.error.URLError, OSError) as exc:
         yield f"[floor] cannot reach docker-proxy for {container}: {exc}\n"
         return
@@ -443,30 +470,50 @@ def _stream_container_logs(container: str, tail: int = 200):
             chunk = resp.read(4096)
             if not chunk:
                 break
-            buf += chunk
-            # Docker multiplexed stream: consume complete frames.
-            # Frame layout: 8-byte header then <size> bytes of payload.
-            while True:
-                if len(buf) < 8:
-                    break
-                size = int.from_bytes(buf[4:8], "big")
-                if len(buf) < 8 + size:
-                    break
-                payload = buf[8: 8 + size]
-                buf = buf[8 + size:]
-                text = payload.decode("utf-8", errors="replace")
-                # Split into individual lines; keep the newline for SSE fidelity.
-                for line in text.splitlines(keepends=True):
-                    if _is_spinner(line):
-                        body = line.rstrip("\r\n")[1:]   # drop spinner char
+            if is_tty:
+                # TTY containers: raw stream, no frame headers.
+                buf += chunk
+                # Decode complete lines from the buffer, keeping any
+                # trailing partial line for the next chunk.
+                while True:
+                    idx = buf.find(b"\n")
+                    if idx == -1:
+                        break
+                    line = buf[:idx + 1]
+                    buf = buf[idx + 1:]
+                    text = line.decode("utf-8", errors="replace")
+                    if _is_spinner(text):
+                        body = text.rstrip("\r\n")[1:]
                         if body == last_spinner_body:
-                            continue                      # duplicate frame
+                            continue
                         last_spinner_body = body
-                        # emit the first frame of a new spinner message
-                        yield line
+                        yield text
                     else:
                         last_spinner_body = ""
-                        yield line
+                        yield text
+            else:
+                buf += chunk
+                # Docker multiplexed stream: consume complete frames.
+                # Frame layout: 8-byte header then <size> bytes of payload.
+                while True:
+                    if len(buf) < 8:
+                        break
+                    size = int.from_bytes(buf[4:8], "big")
+                    if len(buf) < 8 + size:
+                        break
+                    payload = buf[8: 8 + size]
+                    buf = buf[8 + size:]
+                    text = payload.decode("utf-8", errors="replace")
+                    for line in text.splitlines(keepends=True):
+                        if _is_spinner(line):
+                            body = line.rstrip("\r\n")[1:]
+                            if body == last_spinner_body:
+                                continue
+                            last_spinner_body = body
+                            yield line
+                        else:
+                            last_spinner_body = ""
+                            yield line
     except (OSError, urllib.error.URLError):
         pass
     finally:
@@ -519,12 +566,32 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._static(path)
 
+    def _is_loggable(self, container: str) -> bool:
+        """Server-side check: is this container allowed to stream logs?
+
+        Matches the frontend isLoggable() logic (LOGGABLE_WINGS + LOGGABLE_NAMES)
+        but operates on container names directly since we don't have room metadata
+        at auth time.
+        """
+        if container in LOGGABLE_CONTAINER_NAMES:
+            return True
+        if container.startswith(LOGGABLE_CONTAINER_PREFIXES):
+            return True
+        return False
+
     def _stream_logs(self, container: str):
         """Stream filtered container logs as plain text (chunked transfer)."""
         # The container name may include only alphanumeric, dash, underscore,
         # or dot characters; reject anything else before touching docker-proxy.
         if not re.fullmatch(r"[a-zA-Z0-9._-]{1,128}", container):
             self._json(400, {"error": "invalid container name"})
+            return
+
+        # Server-side authorization: only loggable containers may be streamed.
+        # This prevents arbitrary log exfiltration from sensitive containers
+        # (litellm, caddy, authentik, etc.) even behind the operator ring.
+        if not self._is_loggable(container):
+            self._json(403, {"error": "container not in loggable set"})
             return
 
         self.send_response(200)
