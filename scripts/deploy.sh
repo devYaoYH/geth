@@ -48,6 +48,32 @@ git push origin main || echo "deploy: WARN could not push origin (continuing; no
 #    in their manifest.
 ./scripts/build-mirrored.sh
 
+# 4b. Rebuild locally-built images whose build inputs changed in this merge.
+#     'docker compose up -d' (step 5) does NOT rebuild an existing image, so a
+#     merged Dockerfile or build-context change would otherwise never reach the
+#     running container — exactly what stranded the launcher compose-plugin fix
+#     (image kept the pre-fix build; `docker compose` was absent, so every
+#     launch 500'd). Diff-driven so deploys stay fast: only apps whose baked-in
+#     files changed get rebuilt; step 5 then recreates them (compose recreates
+#     on image-id change, so no --build needed there). CHANGED is computed once
+#     here and reused by the restart pass in step 6 — OLD_HEAD..HEAD is fixed
+#     after the ff-merge above.
+CHANGED=$(git diff --name-only "$OLD_HEAD" HEAD)
+for app in $(printf '%s\n' "$CHANGED" | sed -n 's#^apps/\([^/]*\)/.*#\1#p' | sort -u); do
+  # Build inputs = context files baked into the image; exclude compose/proxy
+  # metadata (same exclusion the step-6 restart pass uses). No baked-in file
+  # changed -> nothing to rebuild.
+  printf '%s\n' "$CHANGED" | grep "^apps/$app/" \
+    | grep -qvE "^apps/$app/(compose\.yaml|route\.caddy|env\.example)$" || continue
+  # Only services that actually build from a context; compose build errors on
+  # image-only services, so gate on the app being a known compose service.
+  if docker compose config --services 2>/dev/null | grep -qx "$app"; then
+    echo "   rebuilding $app image (build inputs changed)"
+    docker compose build "$app" \
+      || echo "deploy: WARN build failed for $app (continuing; step 5 uses existing image)"
+  fi
+done
+
 # 5. Apply: recreate any service whose spec changed (env/image/etc).
 #    Two passes, because "which profiles are enabled" is the OPERATOR's call,
 #    not this script's: first the core plane (default profile), then every
@@ -75,7 +101,7 @@ else
   echo "deploy: WARN caddy config failed validation — NOT reloading (fix the route, re-run)"
 fi
 
-CHANGED=$(git diff --name-only "$OLD_HEAD" HEAD)
+# CHANGED was computed in step 4b (OLD_HEAD..HEAD is fixed after the ff-merge).
 for app in $(printf '%s\n' "$CHANGED" | sed -n 's#^apps/\([^/]*\)/.*#\1#p' | sort -u); do
   if printf '%s\n' "$CHANGED" | grep -q "^apps/$app/" \
      && printf '%s\n' "$CHANGED" | grep "^apps/$app/" | grep -qvE "^apps/$app/(compose\.yaml|route\.caddy|env\.example)$"; then
