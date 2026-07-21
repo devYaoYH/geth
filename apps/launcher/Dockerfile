@@ -1,5 +1,8 @@
 # On-demand app lifecycle controller.
-# Needs docker CLI + compose plugin for compose operations via the socket.
+# Needs the docker CLI + compose plugin for compose operations via the socket
+# proxy. Uses Docker's official docker-ce-cli (client only — no daemon; the
+# launcher talks to launcher-docker-proxy) rather than Debian's docker.io, which
+# conflicts with Docker's repo plugins on the shared cli-plugins path.
 FROM python:3.12-slim
 
 RUN apt-get update && apt-get install -y ca-certificates curl && \
@@ -7,7 +10,7 @@ RUN apt-get update && apt-get install -y ca-certificates curl && \
     curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc && \
     chmod a+r /etc/apt/keyrings/docker.asc && \
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null && \
-    apt-get update && apt-get install -y docker.io docker-compose-plugin && rm -rf /var/lib/apt/lists/*
+    apt-get update && apt-get install -y docker-ce-cli docker-compose-plugin && rm -rf /var/lib/apt/lists/*
 
 COPY app.py /srv/launcher.py
 
