@@ -52,6 +52,24 @@ def main() -> None:
     # Expand ${VAR} references in arg values from the environment.
     # An unset variable raises KeyError (hard failure, not silent empty string).
     args_line: list[str] = []
+    patch = b.get("patch", "")
+    if patch:
+        if (
+            not isinstance(patch, str)
+            or not patch.endswith(".patch")
+            or patch.startswith("/")
+            or ".." in patch.split("/")
+        ):
+            print(
+                f"ERROR: [build].patch in {toml_path} must be a relative .patch path inside node-config",
+                file=sys.stderr,
+            )
+            sys.exit(5)
+        # Reserved metadata, consumed by build-mirrored.sh rather than passed
+        # to Docker. A mirrored upstream stays read-only; node-config owns the
+        # small, reviewable integration patch applied to the pinned SHA.
+        args_line.append(f"__NODE_CONFIG_PATCH__={patch}")
+
     for k, v in b.get("args", {}).items():
         expanded = string.Template(v).substitute(os.environ)
         args_line.append(f"{k}={expanded}")

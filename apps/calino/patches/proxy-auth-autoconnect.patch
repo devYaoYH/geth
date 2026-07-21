@@ -1,0 +1,294 @@
+diff --git a/Dockerfile b/Dockerfile
+index f83f4df..4308d5e 100644
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -9,11 +9,17 @@ ARG CALINO_ENABLE_SW=false
+ ARG CALINO_GITHUB_REPO=ivan-malinovski/Calino
+ ARG CALINO_CONTACT_EMAIL=calendar@malinov.ski
+ ARG CALINO_SELF_HOSTED=true
++ARG CALINO_SSO_CALDAV_URL=
++ARG CALINO_SSO_CALDAV_ACCOUNT_NAME=
++ARG CALINO_SSO_CALDAV_USERNAME=
+ ENV VITE_SITE_URL=$VITE_SITE_URL \
+     CALINO_ENABLE_SW=$CALINO_ENABLE_SW \
+     CALINO_GITHUB_REPO=$CALINO_GITHUB_REPO \
+     CALINO_CONTACT_EMAIL=$CALINO_CONTACT_EMAIL \
+-    CALINO_SELF_HOSTED=$CALINO_SELF_HOSTED
++    CALINO_SELF_HOSTED=$CALINO_SELF_HOSTED \
++    CALINO_SSO_CALDAV_URL=$CALINO_SSO_CALDAV_URL \
++    CALINO_SSO_CALDAV_ACCOUNT_NAME=$CALINO_SSO_CALDAV_ACCOUNT_NAME \
++    CALINO_SSO_CALDAV_USERNAME=$CALINO_SSO_CALDAV_USERNAME
+
+ WORKDIR /app
+
+diff --git a/src/features/caldav/hooks/useCalDAV.ts b/src/features/caldav/hooks/useCalDAV.ts
+index 2567f9a..4b25559 100644
+--- a/src/features/caldav/hooks/useCalDAV.ts
++++ b/src/features/caldav/hooks/useCalDAV.ts
+@@ -49,6 +49,10 @@ const isProcessingRef = { current: false }
+
+ // Module-level guard for auto-connect (shared across all hook instances)
+ let autoConnectDone = false
++// Proxy-auth accounts contain only a public URL and username. Their real
++// credential stays at the same-origin reverse proxy, so they can connect
++// immediately without a master-password prompt.
++let proxyAutoConnectDone = false
+ // Module-level guard: only sync once per page session (set when timer fires, not when effect runs)
+ // Module-level guard: event IDs whose server DELETE is currently in flight. A
+ // concurrent sync must skip these — otherwise it can re-add an event the user
+@@ -736,6 +740,42 @@ export function useCalDAV(): UseCalDAVReturn {
+   // Auto-connect to preconfigured accounts when unlocked
+   const isUnlocked = useConfigStore((state) => state.isUnlocked)
+   const hasPreconfiguredAccounts = useConfigStore((state) => state.hasPreconfiguredAccounts)
++  const configLoaded = useConfigStore((state) => state.configLoaded)
++  const hasProxyAccounts = useConfigStore((state) => state.hasProxyAccounts)
++
++  useEffect(() => {
++    if (!configLoaded || !hasProxyAccounts || proxyAutoConnectDone) {
++      return
++    }
++
++    const { config } = useConfigStore.getState()
++    if (!config) return
++
++    proxyAutoConnectDone = true
++    const existingAccounts = storage.getAllAccounts()
++
++    const connectAccounts = async (): Promise<void> => {
++      for (const account of config.proxyAccounts ?? []) {
++        const alreadyConnected = existingAccounts.some(
++          (existing) =>
++            existing.serverUrl === account.url && existing.username === account.username
++        )
++        if (alreadyConnected) continue
++
++        try {
++          // tsdav requires Basic credentials even when the proxy is the
++          // authenticating party. This placeholder is intentionally public;
++          // Caddy replaces the entire Authorization header after validating
++          // the user's SSO session.
++          await addAccount(account.url, account.username, 'proxy-auth', account.name)
++        } catch (err) {
++          console.error(`[CalDAV] Failed to auto-connect proxy account ${account.name}:`, err)
++        }
++      }
++    }
++
++    void connectAccounts()
++  }, [addAccount, configLoaded, hasProxyAccounts])
+
+   useEffect(() => {
+     if (!isUnlocked || !hasPreconfiguredAccounts || autoConnectDone) {
+diff --git a/src/lib/__tests__/configLoader.test.ts b/src/lib/__tests__/configLoader.test.ts
+index 38e1681..e2f3aa1 100644
+--- a/src/lib/__tests__/configLoader.test.ts
++++ b/src/lib/__tests__/configLoader.test.ts
+@@ -15,6 +15,7 @@ const validConfig: CalinoConfig = {
+       },
+     },
+   ],
++  proxyAccounts: [],
+   webcalSubscriptions: [],
+ }
+
+@@ -173,4 +174,40 @@ describe('configLoader', () => {
+       expect(config!.webcalSubscriptions).toEqual([])
+     })
+   })
++
++  describe('proxyAccounts', () => {
++    it('loads a public proxy-auth account without a master password', async () => {
++      originalGlobal.__CALINO_CONFIG__ = {
++        version: 1,
++        accounts: [],
++        proxyAccounts: [
++          {
++            name: 'Node calendar',
++            url: 'https://calino.localhost/dav/operator/',
++            username: 'operator',
++          },
++        ],
++      }
++
++      const config = await loadConfig()
++      expect(config?.proxyAccounts).toEqual([
++        {
++          name: 'Node calendar',
++          url: 'https://calino.localhost/dav/operator/',
++          username: 'operator',
++        },
++      ])
++      expect(config?.accounts).toEqual([])
++    })
++
++    it('skips invalid proxy-auth accounts', async () => {
++      originalGlobal.__CALINO_CONFIG__ = {
++        version: 1,
++        accounts: [],
++        proxyAccounts: [{ name: '', url: '/not-a-url', username: '' }],
++      }
++
++      expect(await loadConfig()).toBeNull()
++    })
++  })
+ })
+diff --git a/src/lib/configLoader.ts b/src/lib/configLoader.ts
+index 282c9b5..3c58d95 100644
+--- a/src/lib/configLoader.ts
++++ b/src/lib/configLoader.ts
+@@ -10,6 +10,17 @@ export interface PreconfiguredAccount {
+   password: MasterEncryptedData
+ }
+
++/**
++ * A CalDAV account whose authentication happens at a trusted same-origin
++ * reverse proxy. It deliberately contains no password: the browser must
++ * never receive the upstream credential.
++ */
++export interface ProxyAuthenticatedAccount {
++  name: string
++  url: string
++  username: string
++}
++
+ export interface PreconfiguredWebcal {
+   name: string
+   // May embed a secret token in the query string, so encrypted like CalDAV url.
+@@ -21,6 +32,8 @@ export interface PreconfiguredWebcal {
+ export interface CalinoConfig {
+   version: number
+   accounts: PreconfiguredAccount[]
++  /** Public, credential-free accounts authenticated by a same-origin proxy. */
++  proxyAccounts?: ProxyAuthenticatedAccount[]
+   webcalSubscriptions: PreconfiguredWebcal[]
+ }
+
+@@ -44,6 +57,12 @@ const PreconfiguredAccountSchema = z.object({
+   password: MasterEncryptedDataSchema,
+ })
+
++const ProxyAuthenticatedAccountSchema = z.object({
++  name: z.string().trim().min(1),
++  url: z.string().url(),
++  username: z.string().trim().min(1),
++})
++
+ const PreconfiguredWebcalSchema = z.object({
+   name: z.string().trim().min(1),
+   url: MasterEncryptedDataSchema,
+@@ -53,7 +72,8 @@ const PreconfiguredWebcalSchema = z.object({
+
+ const CalinoConfigEnvelopeSchema = z.object({
+   version: z.literal(1),
+-  accounts: z.array(z.unknown()),
++  accounts: z.array(z.unknown()).optional(),
++  proxyAccounts: z.array(z.unknown()).optional(),
+   webcalSubscriptions: z.array(z.unknown()).optional(),
+ })
+
+@@ -84,7 +104,7 @@ export async function loadConfig(): Promise<CalinoConfig | null> {
+   }
+
+   const accounts: PreconfiguredAccount[] = []
+-  for (const raw of envelope.data.accounts) {
++  for (const raw of envelope.data.accounts ?? []) {
+     const parsed = PreconfiguredAccountSchema.safeParse(raw)
+     if (parsed.success) {
+       accounts.push(parsed.data)
+@@ -93,6 +113,16 @@ export async function loadConfig(): Promise<CalinoConfig | null> {
+     }
+   }
+
++  const proxyAccounts: ProxyAuthenticatedAccount[] = []
++  for (const raw of envelope.data.proxyAccounts ?? []) {
++    const parsed = ProxyAuthenticatedAccountSchema.safeParse(raw)
++    if (parsed.success) {
++      proxyAccounts.push(parsed.data)
++    } else {
++      console.warn('[configLoader] Skipping invalid proxy account entry', parsed.error.issues)
++    }
++  }
++
+   const webcalSubscriptions: PreconfiguredWebcal[] = []
+   for (const raw of envelope.data.webcalSubscriptions ?? []) {
+     const parsed = PreconfiguredWebcalSchema.safeParse(raw)
+@@ -103,12 +133,12 @@ export async function loadConfig(): Promise<CalinoConfig | null> {
+     }
+   }
+
+-  if (accounts.length === 0 && webcalSubscriptions.length === 0) {
++  if (accounts.length === 0 && proxyAccounts.length === 0 && webcalSubscriptions.length === 0) {
+     cachedConfig = null
+     return null
+   }
+
+-  const config: CalinoConfig = { version: 1, accounts, webcalSubscriptions }
++  const config: CalinoConfig = { version: 1, accounts, proxyAccounts, webcalSubscriptions }
+   cachedConfig = config
+   return config
+ }
+diff --git a/src/store/configStore.ts b/src/store/configStore.ts
+index 2aab040..9290dd7 100644
+--- a/src/store/configStore.ts
++++ b/src/store/configStore.ts
+@@ -37,6 +37,7 @@ interface ConfigState {
+   // Derived state
+   isUnlocked: boolean
+   hasPreconfiguredAccounts: boolean
++  hasProxyAccounts: boolean
+   hasPreconfiguredWebcal: boolean
+
+   // Actions
+@@ -95,6 +96,7 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
+   decryptedWebcalSubscriptions: [],
+   isUnlocked: false,
+   hasPreconfiguredAccounts: false,
++  hasProxyAccounts: false,
+   hasPreconfiguredWebcal: false,
+
+   /**
+@@ -108,6 +110,7 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
+         config: null,
+         configLoaded: true,
+         hasPreconfiguredAccounts: false,
++        hasProxyAccounts: false,
+         hasPreconfiguredWebcal: false,
+       })
+       return
+@@ -117,6 +120,7 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
+       config,
+       configLoaded: true,
+       hasPreconfiguredAccounts: config.accounts.length > 0,
++      hasProxyAccounts: (config.proxyAccounts?.length ?? 0) > 0,
+       hasPreconfiguredWebcal: config.webcalSubscriptions.length > 0,
+     })
+
+diff --git a/vite.config.ts b/vite.config.ts
+index 5140768..8ee8946 100644
+--- a/vite.config.ts
++++ b/vite.config.ts
+@@ -21,6 +21,24 @@ if (existsSync(configPath)) {
+   }
+ }
+
++// A same-origin proxy can authenticate a browser session without exposing a
++// CalDAV password to the bundle. This build-time opt-in creates a public,
++// non-secret account definition that the client auto-connects on first load.
++const proxyCalDAVUrl = process.env.CALINO_SSO_CALDAV_URL?.trim()
++if (proxyCalDAVUrl) {
++  const proxyAccount = {
++    name: process.env.CALINO_SSO_CALDAV_ACCOUNT_NAME?.trim() || 'Calendar',
++    url: proxyCalDAVUrl,
++    username: process.env.CALINO_SSO_CALDAV_USERNAME?.trim() || 'proxy',
++  }
++  calinoConfig = {
++    version: 1,
++    accounts: calinoConfig?.accounts ?? [],
++    proxyAccounts: [proxyAccount, ...(Array.isArray(calinoConfig?.proxyAccounts) ? calinoConfig.proxyAccounts : [])],
++    webcalSubscriptions: calinoConfig?.webcalSubscriptions ?? [],
++  }
++}
++
+ export default defineConfig({
+   base: '/',
+   define: {

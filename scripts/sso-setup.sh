@@ -37,20 +37,53 @@ saveenv() {  # saveenv <key> <value> [file=.env]
   grep -q "^$1=" "$f" && sed -i '' "s|^$1=.*|$1=$2|" "$f" || printf '%s=%s\n' "$1" "$2" >> "$f"
 }
 
-mint_client() {  # mint_client <name> <callback-url> <ENV_PREFIX> [envfile]
-  local name=$1 cb=$2 prefix=$3 envfile="${4:-.env}" id secret
-  id=$("${CURL[@]}" "$AUTH_URL/api/oidc/clients" | python3 -c "
-import json,sys
-for c in json.load(sys.stdin)['data']:
-    if c['name']=='$name': print(c['id']); break")
-  if [[ -n "$id" && -n "$(eval echo \${${prefix}_CLIENT_SECRET:-})" ]]; then
-    echo "   client '$name' exists — skip"
-    return
-  fi
-  if [[ -z "$id" ]]; then
-    id=$("${CURL[@]}" -X POST "$AUTH_URL/api/oidc/clients" \
-      -d "{\"name\":\"$name\",\"callbackURLs\":[\"$cb\"]}" \
+mint_client() {  # mint_client <name> <comma-separated callbacks> <ENV_PREFIX> [envfile]
+  local name=$1 callbacks=$2 prefix=$3 envfile="${4:-.env}" id secret client payload changed
+  id=$("${CURL[@]}" "$AUTH_URL/api/oidc/clients" | python3 -c '
+import json, sys
+for client in json.load(sys.stdin)["data"]:
+    if client["name"] == sys.argv[1]:
+        print(client["id"])
+        break
+' "$name")
+  if [[ -n "$id" ]]; then
+    # Pocket ID's PUT endpoint expects the full supported DTO. Preserve it,
+    # adding a callback only when a new browser surface needs one.
+    client=$("${CURL[@]}" "$AUTH_URL/api/oidc/clients/$id")
+    changed=$(printf '%s' "$client" | python3 -c '
+import json, sys
+current = set(json.load(sys.stdin).get("callbackURLs", []))
+needed = {url for url in sys.argv[1].split(",") if url}
+print("yes" if not needed.issubset(current) else "no")
+' "$callbacks")
+    if [[ "$changed" == yes ]]; then
+      payload=$(printf '%s' "$client" | python3 -c '
+import json, sys
+client = json.load(sys.stdin)
+fields = ("name", "description", "logoutCallbackURLs", "isPublic", "pkceEnabled",
+          "requiresReauthentication", "requiresPushedAuthorizationRequests",
+          "launchURL", "hasLogo", "hasDarkLogo", "logoUrl", "darkLogoUrl",
+          "isGroupRestricted")
+payload = {field: client.get(field) for field in fields}
+payload["callbackURLs"] = list(dict.fromkeys(client.get("callbackURLs", []) + [u for u in sys.argv[1].split(",") if u]))
+print(json.dumps(payload))
+' "$callbacks")
+      "${CURL[@]}" -X PUT "$AUTH_URL/api/oidc/clients/$id" -d "$payload" >/dev/null
+      echo "   client '$name' callbacks updated"
+    else
+      echo "   client '$name' exists — callbacks current"
+    fi
+  else
+    payload=$(python3 -c '
+import json, sys
+print(json.dumps({"name": sys.argv[1], "callbackURLs": [u for u in sys.argv[2].split(",") if u]}))
+' "$name" "$callbacks")
+    id=$("${CURL[@]}" -X POST "$AUTH_URL/api/oidc/clients" -d "$payload" \
       | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+  fi
+  if [[ -n "$(eval echo \${${prefix}_CLIENT_SECRET:-})" ]]; then
+    saveenv "${prefix}_CLIENT_ID" "$id" "$envfile"
+    return
   fi
   secret=$("${CURL[@]}" -X POST "$AUTH_URL/api/oidc/clients/$id/secret" \
       | python3 -c 'import json,sys; print(json.load(sys.stdin)["secret"])')
@@ -67,7 +100,7 @@ mint_client litellm "https://llm.${NODE_DOMAIN}/sso/callback" LITELLM_OIDC
 mint_client miniflux "https://feeds.${NODE_DOMAIN}/oauth2/oidc/callback" MINIFLUX_OIDC secrets/miniflux.env
 mint_client open-webui "https://chat.${NODE_DOMAIN}/oauth/oidc/callback" OPENWEBUI_OIDC secrets/open-webui.env
 mint_client memos "https://notes.${NODE_DOMAIN}/auth/callback" MEMOS_OIDC secrets/memos.env
-mint_client oauth2-proxy "https://cal.${NODE_DOMAIN}/oauth2/callback" OAUTH2_PROXY
+mint_client oauth2-proxy "https://cal.${NODE_DOMAIN}/oauth2/callback,https://calino.${NODE_DOMAIN}/oauth2/callback" OAUTH2_PROXY
 if [[ -z "${OAUTH2_PROXY_COOKIE_SECRET:-}" ]]; then
   saveenv OAUTH2_PROXY_COOKIE_SECRET "$(openssl rand -base64 32 | head -c 32)"
   echo "   generated authshim cookie secret -> .env"
@@ -193,7 +226,7 @@ services:
       # Chrome refuses Domain=.localhost cookies (public-suffix rule), which
       # silently drops the shim's CSRF cookie -> 403 on the OAuth callback.
       # Host-scope the cookies in local dev; real domains keep .${NODE_DOMAIN}.
-      OAUTH2_PROXY_COOKIE_DOMAINS: cal.localhost
+      OAUTH2_PROXY_COOKIE_DOMAINS: cal.localhost,calino.localhost
     volumes:
       - ./.local-ca-bundle.pem:/certs/local-bundle.pem:ro
 EOF

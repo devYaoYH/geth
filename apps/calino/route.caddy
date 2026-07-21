@@ -6,20 +6,57 @@
 # not set CORS headers, so the browser would block cross-origin requests from
 # calino.<domain> to cal.<domain>. Instead, we proxy CalDAV requests through
 # calino's own route (/dav/* -> radicale:5232), making them same-origin and
-# eliminating CORS entirely. The user configures Calino's CalDAV server URL as
-# https://calino.<domain>/dav/ (same origin, no CORS needed).
+# eliminating CORS entirely. The verified operator's SSO session receives the
+# same Radicale credential injection as cal.<domain>; the real password never
+# needs to enter Calino's localStorage. Other people and native CalDAV clients
+# retain Radicale's own authentication boundary.
 
 calino.{$NODE_DOMAIN} {
 	import ring1
 
-	# Proxy CalDAV requests to Radicale, stripping the /dav prefix so the
-	# upstream receives the canonical path (e.g., /dav/calendars/user/ ->
-	# /calendars/user/). Same-origin = zero CORS.
-	handle_path /dav/* {
-		reverse_proxy radicale:5232
+	# Calino is a human browser surface. This local callback completes the
+	# passkey flow without the forward-auth loop seeing it again.
+	handle /oauth2/* {
+		reverse_proxy oauth2-proxy:4180
 	}
 
-	# Serve the Calino static app (built by the upstream Dockerfile, served
-	# by Caddy on port 8080).
-	reverse_proxy calino:8080
+	# /dav is a protocol endpoint, not an SPA screen. Preserve the canonical
+	# trailing slash so a direct visit cannot fall through to Calino's router.
+	redir /dav /dav/ 308
+
+	# Proxy CalDAV requests to Radicale, stripping the /dav prefix so the
+	# upstream receives the canonical path (e.g., /dav/calendars/user/ ->
+	# /calendars/user/). A verified browser session gets the operator credential;
+	# same-origin = zero CORS.
+	handle_path /dav/* {
+		@browser header Cookie *_oauth2_proxy=*
+		handle @browser {
+			import authed
+
+			@operator header X-Auth-Request-Email {$RADICALE_OPERATOR_EMAIL:nobody@node.invalid}
+			handle @operator {
+				reverse_proxy radicale:5232 {
+					header_up Authorization "Basic {env.RADICALE_WEB_AUTH}"
+				}
+			}
+
+			# Other signed-in people must authenticate as their own Radicale user.
+			handle {
+				reverse_proxy radicale:5232
+			}
+		}
+
+		# Native CalDAV clients do not follow OIDC redirects. Preserve their
+		# Radicale Basic challenge-response flow unchanged.
+		handle {
+			reverse_proxy radicale:5232
+		}
+	}
+
+	# The first SPA request starts SSO. After sign-in, its DAV traffic above is
+	# authenticated independently and remains same-origin.
+	handle {
+		import authed
+		reverse_proxy calino:8080
+	}
 }

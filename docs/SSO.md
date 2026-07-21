@@ -81,24 +81,33 @@ No env plane for auth — the IdP is configured over the app's admin API.
    exists), and the signin JWT arrives in the response body `accessToken`,
    not a cookie.
 
-### 3. No OIDC at all (Radicale) — the authshim
+### 3. No OIDC at all (Radicale and Calino) — the authshim
 
 oauth2-proxy (profile `authshim`) is an OIDC client of Pocket ID; Caddy
 `forward_auth`s browser traffic to it.
 
 1. The shim's client + cookie secret are minted by `sso-setup.sh`; it is
    started in the apply step — it is part of the door.
-2. Caddyfile: put ONLY the browser-facing paths behind `import authed`, and
-   proxy `/oauth2/*` to `oauth2-proxy:4180` on the same site (see `cal`'s
-   route). Machine-protocol paths (DAV, API) bypass the shim — those clients
-   cannot follow OIDC redirects, and their credential plane is the app's
-   business.
+2. Caddyfile: put browser-facing paths behind `import authed`, and proxy
+   `/oauth2/*` to `oauth2-proxy:4180` on the same site (see `cal` and
+   `calino`). Machine-protocol paths (DAV, API) bypass the shim unless a
+   verified browser cookie is present — those clients cannot follow OIDC
+   redirects, and their credential plane remains the app's business.
 3. New shimmed app: append its `https://<host>/oauth2/callback` to the
    oauth2-proxy client's callback URLs in Pocket ID; the shim infers the
    per-host redirect from `X-Forwarded-Host`.
 4. The copied `X-Auth-Request-User` / `X-Auth-Request-Email` headers are
    available if the app can trust asserted identity; gating at the door
    works even when it can't.
+
+**Calino + Radicale:** open `https://calino.<domain>` and sign in with the
+operator passkey. The packaged Calino image automatically connects the public,
+credential-free account at `https://calino.<domain>/dav/operator/`; there is no
+form to complete and no Radicale password in browser storage. For that verified
+browser session Caddy replaces Calino's disposable Authorization header with
+the operator's Radicale credential. A different SSO user or a native CalDAV
+client never inherits this credential and must authenticate to Radicale as
+itself. `/dav` is a CalDAV protocol path, not a Calino page.
 
 ## Local-dev (`NODE_DOMAIN=localhost`) gotchas
 
