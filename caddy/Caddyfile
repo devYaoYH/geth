@@ -70,6 +70,16 @@ auth.{$NODE_DOMAIN} {
 # Ring 1 — trusted-people dashboard (status + links; config lives in git)
 home.{$NODE_DOMAIN} {
 	import ring1
+
+	# Deploy-info artifact (deploy-info.json) is served directly by Caddy from a
+	# host-mounted directory, NOT proxied through the homepage container — the
+	# homepage's Next.js server does not serve runtime-dropped files from /public.
+	# The file is written by deploy.sh/deploy-watch.sh after each successful deploy.
+	handle_path /static/* {
+		root * /srv/homepage-static
+		file_server
+	}
+
 	reverse_proxy homepage:3000
 }
 
