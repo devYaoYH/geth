@@ -10,14 +10,13 @@
 
 services:
   # --- apps ring 1: calino ---------------------------------------------------
-  # A CalDAV web client (React/TypeScript) that connects to the Radicale CalDAV
-  # server. Credentials are entered by the user in the browser and stored in
-  # localStorage (never on the wire beyond the CalDAV fetch itself). The DAV
-  # proxy on the calino route (/dav/* -> radicale:5232) avoids CORS entirely.
+# A CalDAV web client (React/TypeScript) that connects to Radicale through a
+# same-origin DAV proxy. Caddy verifies Pocket ID and injects the operator's
+# Radicale credential server-side, so Calino holds only a public placeholder.
   # Built from the upstream mirror by scripts/build-mirrored.sh at deploy time.
   calino:
     profiles: [apps]
-    image: sovereign-node/calino:0.22.7
+    image: sovereign-node/calino:0.22.7-geth-sso.1
     container_name: calino
     restart: unless-stopped
     networks: [front]

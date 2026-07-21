@@ -5,9 +5,9 @@
 
 [app]
 name = "calino"
-version = "0.22.7"
-description = "CalDAV web client; ring 1 behind the door; upstream: Ivan-Malinovski/calino (MIT)"
-image = "sovereign-node/calino:0.22.7"
+version = "0.22.7-geth-sso.1"
+description = "CalDAV web client; Pocket ID at the door and server-side Radicale auth; upstream: Ivan-Malinovski/calino (MIT)"
+image = "sovereign-node/calino:0.22.7-geth-sso.1"
 ring = 1
 
 [service]
@@ -15,9 +15,10 @@ port = 8080
 health = "/"
 
 [needs]
-# No internal calls; the browser connects to Radicale through the calino route's
-# DAV proxy (/dav/* -> radicale:5232, same-origin, zero CORS). Credentials are
-# stored in localStorage and sent directly to the proxy.
+# The browser connects to Radicale through Calino's same-origin DAV proxy
+# (/dav/* -> radicale:5232, zero CORS). Caddy validates the operator's Pocket
+# ID session and injects the Radicale credential server-side; no calendar
+# credential enters the browser.
 
 [resources]
 volumes = []
@@ -38,5 +39,9 @@ update_policy = "pinned"    # pinned to upstream commit 8e21e96ec842; update by
 # the image on the host at deploy time (no BuildKit network issues).
 repo = "mirrors/calino"
 ref = "8e21e96ec842a426e714f78ff1f9cfa3e297c03b"
+patch = "apps/calino/patches/proxy-auth-autoconnect.patch"
 args.VITE_SITE_URL = "https://calino.${NODE_DOMAIN}"
 args.CALINO_SELF_HOSTED = "true"
+args.CALINO_SSO_CALDAV_URL = "https://calino.${NODE_DOMAIN}/dav/operator/"
+args.CALINO_SSO_CALDAV_ACCOUNT_NAME = "Geth calendar"
+args.CALINO_SSO_CALDAV_USERNAME = "operator"

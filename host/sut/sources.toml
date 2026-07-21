@@ -11,8 +11,12 @@ ref = "12a297eefd959e742a4fc44022d256ea71d2f0b1"
 
 [[source]]
 name = "calino"
-image = "sovereign-node/calino:0.22.7"
+image = "sovereign-node/calino:0.22.7-geth-sso.1"
 repo = "mirrors/calino"
 ref = "8e21e96ec842a426e714f78ff1f9cfa3e297c03b"
+patch = "apps/calino/patches/proxy-auth-autoconnect.patch"
 args.VITE_SITE_URL = "https://calino.sut.invalid"
 args.CALINO_SELF_HOSTED = "true"
+args.CALINO_SSO_CALDAV_URL = "https://calino.sut.invalid/dav/operator/"
+args.CALINO_SSO_CALDAV_ACCOUNT_NAME = "Geth calendar"
+args.CALINO_SSO_CALDAV_USERNAME = "operator"

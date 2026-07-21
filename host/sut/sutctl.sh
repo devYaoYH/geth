@@ -184,9 +184,17 @@ for item in items:
         raise SystemExit("invalid SUT source allowlist entry")
     if not all(c.isalnum() or c in "._/-:" for c in item["name"] + item["image"] + item["repo"] + item["ref"]):
         raise SystemExit("unsafe SUT source allowlist entry")
+    patch = item.get("patch", "")
+    if patch and (
+        not isinstance(patch, str)
+        or not patch.endswith(".patch")
+        or patch.startswith("/")
+        or ".." in patch.split("/")
+    ):
+        raise SystemExit("unsafe SUT source patch path")
 out.write_text(json.dumps(items, sort_keys=True))
 PY
-  while IFS=$'\t' read -r name repo ref; do
+  while IFS=$'\t' read -r name repo ref patch; do
     [[ -n "$name" ]] || continue
     local target="$destination/$name"
     rm -rf "$target"
@@ -197,10 +205,14 @@ PY
       GIT_CONFIG_VALUE_0="Authorization: token $SUT_FORGEJO_TOKEN" \
       git -C "$target" fetch --quiet --depth 1 origin "$ref"
     git -C "$target" checkout --quiet --detach FETCH_HEAD
+    if [[ -n "$patch" ]]; then
+      git -C "$target" apply --check "$ROOT/$patch"
+      git -C "$target" apply "$ROOT/$patch"
+    fi
   done < <(python3 - "$source_file" <<'PY'
 import pathlib, sys, tomllib
 for item in tomllib.loads(pathlib.Path(sys.argv[1]).read_text()).get("source", []):
-    print("\t".join((item["name"], item["repo"], item["ref"])))
+    print("\t".join((item["name"], item["repo"], item["ref"], item.get("patch", ""))))
 PY
 )
 }

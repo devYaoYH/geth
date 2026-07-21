@@ -3,7 +3,8 @@
 #
 # Reads manifest/*.toml files that contain a [build] section. For each such
 # app, if the declared image does not exist locally, clones the mirror repo at
-# the pinned ref and runs docker build with the declared args + tag.
+# the pinned ref, applies its optional reviewable node-config patch, and runs
+# docker build with the declared args + tag.
 #
 # Idempotent: an existing image is skipped, so deploys stay fast.
 # Intended to be called by scripts/deploy.sh before the compose up step.
@@ -15,10 +16,15 @@
 # Dependencies: git, docker, python3 (for TOML parsing + env expansion).
 set -euo pipefail
 cd "$(dirname "$0")/.."
+ROOT_DIR=$(pwd)
 
 # Source .env so ${VAR} references in build arg values expand correctly.
 # The mirror.sh sibling uses the same pattern.
 [[ -f .env ]] && set -a && source .env && set +a
+# Keep build-time hostnames aligned with deploy.sh's local-node default. A
+# first-run local stack may not have NODE_DOMAIN written yet.
+: "${NODE_DOMAIN:=localhost}"
+export NODE_DOMAIN
 
 BUILD_DIR=$(mktemp -d)
 trap 'rm -rf "$BUILD_DIR"' EXIT
@@ -92,15 +98,37 @@ for toml in "${toml_files[@]}"; do
   git -C "$CLONE_DIR" fetch origin "$REF" --depth 1 2>&1 | sed 's/^/    /'
   git -C "$CLONE_DIR" checkout "$REF" 2>&1 | sed 's/^/    /'
 
+  PATCH_FILE=""
+  BUILD_ARGS=()
+  if [[ -n "$ARGS_REST" ]]; then
+    IFS=$'\t' read -r -a ARG_ARR <<<"$ARGS_REST"
+    for a in "${ARG_ARR[@]}"; do
+      if [[ "$a" == __NODE_CONFIG_PATCH__=* ]]; then
+        PATCH_FILE="${a#__NODE_CONFIG_PATCH__=}"
+      else
+        BUILD_ARGS+=("$a")
+      fi
+    done
+  fi
+
+  if [[ -n "$PATCH_FILE" ]]; then
+    if [[ ! -f "$PATCH_FILE" ]]; then
+      echo "  build-mirrored: ERROR patch not found: $PATCH_FILE" >&2
+      exit 1
+    fi
+    echo "    applying node-config patch $PATCH_FILE"
+    git -C "$CLONE_DIR" apply --check "$ROOT_DIR/$PATCH_FILE"
+    git -C "$CLONE_DIR" apply "$ROOT_DIR/$PATCH_FILE"
+  fi
+
   echo "    building $IMAGE ..."
 
   # Build the docker command with an array (bash 3.2 compatible:
   # read -a works, only readarray/mapfile don't).  Split ARGS_REST on
   # tabs into an array, then loop to add --build-arg for each.
   BUILD_CMD=(docker build)
-  if [[ -n "$ARGS_REST" ]]; then
-    IFS=$'\t' read -r -a ARG_ARR <<<"$ARGS_REST"
-    for a in "${ARG_ARR[@]}"; do
+  if [[ ${#BUILD_ARGS[@]} -gt 0 ]]; then
+    for a in "${BUILD_ARGS[@]}"; do
       BUILD_CMD+=(--build-arg "$a")
     done
   fi
