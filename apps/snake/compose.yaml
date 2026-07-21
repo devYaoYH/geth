@@ -13,7 +13,13 @@ services:
     build: ./site
     image: sovereign-node/snake:local
     container_name: snake
-    restart: unless-stopped
+    # OFF BY DEFAULT: on-demand apps must NOT auto-start. `restart: unless-stopped`
+    # (like `always`) makes Docker resurrect the container after a daemon/host
+    # reboot regardless of its profile — so once launched it would come back on
+    # every boot. `no` keeps lifecycle entirely in the launcher's hands: a fresh
+    # `docker compose up -d` (profile-gated) never starts it, a reboot never
+    # revives it, and it runs only between an explicit launch and stop.
+    restart: "no"
     networks: [front]
 
 networks:

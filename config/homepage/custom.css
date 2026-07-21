@@ -284,58 +284,42 @@ html.alodium-chatbar-open #page_container { padding-bottom: 11rem; }
 .alodium-tile-group .service-site-monitor { display: none; }
 .alodium-tile-group .service-container .service-block:nth-child(n+3) { display: none; }
 
-/* --- on-demand app control: a status dot in the card's top-right corner -----
-   Red when the app is asleep, amber while it warms up, green when it's live.
-   Hover (or keyboard focus) reveals a one-word action to the dot's left, so
-   the tile stays as clean as any always-on app — no inline launch button.
-   Injected by custom.js onto the snake tile. This dot IS the tile's status
-   light: it replaces Homepage's own container/stats dot (hidden just below),
-   so there is exactly one indicator — and it can show the amber "warming up"
-   state that the native docker dot cannot. */
+/* --- on-demand app control: REUSE Homepage's own container-status dot -------
+   No dot of our own — the single indicator IS Homepage's .service-container-stats
+   button (its inner .docker-status .rounded-full is the coloured light). custom.js
+   tags the snake card with .alodium-asleep / .alodium-starting / .alodium-live from
+   the launcher's view; we repaint that one native dot to match — red asleep, amber
+   warming (a state the raw docker dot can't show), green live — so there is
+   exactly one dot and it always reflects launch state. */
 .alodium-ondemand-card { position: relative; }
 
-/* Suppress Homepage's native container status/stats toggle AND site monitor
-   on the on-demand tile — the launcher dot above is the single source of
-   truth here. Both must be hidden to prevent double indicators. */
-#snake-tile .service-container { display: none; }
-#snake-tile .service-site-monitor { display: none; }
-
-.alodium-ondemand {
+/* Pull the reused dot up to the card's top-right corner and enlarge its hit
+   area so it reads as a status light / launch control, not a stats toggle. */
+.alodium-ondemand-card .service-container-stats {
   position: absolute;
-  top: 0.5rem;
-  right: 0.55rem;
+  top: 0.45rem;
+  right: 0.5rem;
   z-index: 3;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  margin: 0;
-  padding: 0.25rem;
-  border: 0;
-  background: transparent;
   cursor: pointer;
-  font: inherit;
-  line-height: 1;
 }
-.alodium-ondemand:disabled { cursor: progress; }
 
-.alodium-ondemand__dot {
-  flex: 0 0 auto;
-  width: 0.62rem;
-  height: 0.62rem;
-  border-radius: 50%;
-  background: #6b7280;
-  transition: background 160ms ease, box-shadow 160ms ease;
+/* Repaint the native dot per launch state. !important overrides Homepage's own
+   Tailwind bg-*-500 colour class on the .rounded-full light. The selector is
+   ancestor-scoped to the stable card, so it survives Homepage re-rendering the
+   inner dot on its docker poll. */
+.alodium-ondemand-card .docker-status .rounded-full {
+  transition: background-color 160ms ease, box-shadow 160ms ease;
 }
-.alodium-ondemand[data-state="stopped"] .alodium-ondemand__dot {
-  background: #ef4444;
+.alodium-ondemand-card.alodium-asleep .docker-status .rounded-full {
+  background-color: #ef4444 !important;
   box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.16);
 }
-.alodium-ondemand[data-state="running"] .alodium-ondemand__dot {
-  background: #22c55e;
+.alodium-ondemand-card.alodium-live .docker-status .rounded-full {
+  background-color: #22c55e !important;
   box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.16);
 }
-.alodium-ondemand[data-state="starting"] .alodium-ondemand__dot {
-  background: #f59e0b;
+.alodium-ondemand-card.alodium-starting .docker-status .rounded-full {
+  background-color: #f59e0b !important;
   animation: alodium-pulse 1200ms ease-out infinite;
 }
 @keyframes alodium-pulse {
@@ -343,20 +327,47 @@ html.alodium-chatbar-open #page_container { padding-bottom: 11rem; }
   100% { box-shadow: 0 0 0 7px rgba(245, 158, 11, 0); }
 }
 
-/* The action word, tucked to the left of the dot; revealed on hover/focus. */
-.alodium-ondemand__label {
+/* Fallback dot: before snake has ever run there may be no container yet, so
+   Homepage renders the stats button empty (no .docker-status light). Paint one
+   on the button itself so the tile always shows its status. Hidden as soon as
+   the real native dot exists — :has keeps us to exactly one dot. */
+.alodium-ondemand-card .service-container-stats:not(:has(.docker-status .rounded-full))::before {
+  content: '';
+  display: block;
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 50%;
+  background: #ef4444;
+}
+.alodium-ondemand-card.alodium-starting .service-container-stats:not(:has(.docker-status .rounded-full))::before {
+  background: #f59e0b;
+  animation: alodium-pulse 1200ms ease-out infinite;
+}
+.alodium-ondemand-card.alodium-live .service-container-stats:not(:has(.docker-status .rounded-full))::before {
+  background: #22c55e;
+}
+
+/* The action word, revealed to the left of the dot on hover/focus. Text only —
+   never a second dot. */
+.alodium-ondemand-action {
+  position: absolute;
+  top: 0.5rem;
+  right: 1.55rem;
+  z-index: 3;
   max-width: 0;
   overflow: hidden;
   white-space: nowrap;
   opacity: 0;
   font-size: 0.7rem;
   font-weight: 650;
+  line-height: 1;
   color: #f1f5f9;
   text-shadow: 0 1px 6px rgba(2, 6, 23, 0.85);
+  pointer-events: none;
   transition: max-width 200ms ease, opacity 160ms ease;
 }
-.alodium-ondemand:hover .alodium-ondemand__label,
-.alodium-ondemand:focus-visible .alodium-ondemand__label {
+.alodium-ondemand-card:hover .alodium-ondemand-action,
+.alodium-ondemand-card:focus-within .alodium-ondemand-action {
   max-width: 6rem;
   opacity: 1;
 }
