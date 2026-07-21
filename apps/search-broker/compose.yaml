@@ -39,6 +39,7 @@ services:
       PORT: "8080"
       AGENT_SEARCH_TOKEN: ${AGENT_SEARCH_TOKEN:-}
       CHAT_SEARCH_TOKEN: ${CHAT_SEARCH_TOKEN:-}
+      CHAT_SEARCH_CAPABILITY_ID: chat
       SEARCH_AUDIT_DATABASE_URL: postgresql://search_audit_writer:${SEARCH_AUDIT_DB_WRITER_PASSWORD:-}@search-audit-db:5432/search_audit
       SEARCH_EGRESS_TOKEN: ${SEARCH_EGRESS_TOKEN:-}
       SEARCH_CAPABILITY_ID: agent-dev
