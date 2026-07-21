@@ -36,6 +36,11 @@ git push origin main || echo "deploy: WARN could not push origin (continuing; no
 #     operator-owed `# require:` ones. Idempotent — only ever fills blanks.
 ./scripts/mint-secrets.sh
 
+# 3c. Ensure difficulty:* labels exist in the coordination repo (idempotent).
+#     These are the per-issue model-routing knobs for issue-work dispatch.
+#     Safe to re-run: Forgejo deduplicates label creation by name.
+./scripts/ensure-tier-labels.sh || echo "deploy: WARN ensure-tier-labels.sh failed (non-fatal; labels may need manual creation)"
+
 # 4. Build any mirrored images that are missing (idempotent: existing images
 #    are skipped). This happens before compose up so the image reference in
 #    the compose fragment resolves. Only touches apps with a [build] section
