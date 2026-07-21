@@ -105,6 +105,11 @@ EOF
     && grep -qx 'mounts: null' "$HOME/.colima/$SUT_PROFILE/colima.yaml" \
     && grep -qx 'portForwarder: none' "$HOME/.colima/$SUT_PROFILE/colima.yaml"; then
     echo "SUT worker profile ready: $SUT_PROFILE (context $SUT_CONTEXT appears while the worker is running)"
+  elif [[ -f "$CONFIG" ]] && [[ "$SUT_EPHEMERAL" == "1" ]]; then
+    # A successful test destroys its whole Colima profile. The retained
+    # host-only config proves initialization happened; the next run will
+    # recreate the profile with the fixed isolation flags in provision_worker.
+    echo "SUT worker configured for single-use execution: $SUT_PROFILE will be recreated on the next PR"
   else
     echo "Colima is installed, but the SUT worker is not initialized. Run: host/sut/sutctl.sh init"
     exit 2
