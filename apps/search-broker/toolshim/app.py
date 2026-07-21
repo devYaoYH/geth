@@ -6,7 +6,7 @@ scripts/chat-tools-setup.sh from manifest/search-broker.toml [expose.chat]);
 models then call the search endpoint mid-conversation.
 
 Upstream: the search-broker on the search-chat network, authenticated with
-AGENT_SEARCH_TOKEN. stdlib only — no dependencies to mirror.
+CHAT_SEARCH_TOKEN (separate from the agent-dev credential). stdlib only — no dependencies to mirror.
 """
 import json
 import os
@@ -15,7 +15,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 SEARCH_BROKER_URL = os.environ.get("SEARCH_BROKER_URL", "http://search-broker:8080")
-SEARCH_TOKEN = os.environ.get("AGENT_SEARCH_TOKEN", "")
+SEARCH_TOKEN = os.environ.get("CHAT_SEARCH_TOKEN", "")
 PORT = int(os.environ.get("PORT", "8101"))
 
 OPENAPI = {

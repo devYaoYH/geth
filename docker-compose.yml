@@ -72,11 +72,12 @@ networks:
     # The audit database is reachable only by the broker and audit API; it has
     # no ingress or egress path, and never joins the agents spur.
     internal: true
-  search-chat:
-    # Chat toolshim <-> search-broker only: Open WebUI tool traffic stays off
-    # the agents spur. Toolshim also joins `front`; search-broker joins this
-    # on its own compose.yaml alongside its existing networks.
+  chat-tools:
+    # Chat toolshims <-> Open WebUI only: the shim is reachable only by chat
+    # sessions, not by the general `front` network. Open WebUI and toolshims
+    # are the only members.
     internal: true
+  
 
 volumes:
   caddy_data:
