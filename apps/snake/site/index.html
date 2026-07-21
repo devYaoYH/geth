@@ -149,7 +149,7 @@
     resizeForDPR();
 
     // Game state
-    let snake, dir, nextDir, food, score, interval, elapsed, running, dead;
+    let snake, dir, nextDir, food, score, interval, elapsed, running, dead, started;
 
     function rndCell(){
       return [Math.floor(Math.random()*COLS), Math.floor(Math.random()*ROWS)];
@@ -163,9 +163,12 @@
       score = 0;
       interval = START_INTERVAL;
       elapsed = 0;
-      running = true;
+      running = false;
       dead = false;
-      overlay.hidden = true;
+      started = false;
+      overlay.hidden = false;
+      titleEl.textContent = 'Snake';
+      subEl.innerHTML = 'Press <span class="accent">any key</span> to start';
       scoreEl.textContent = `Score: ${score}`;
     }
 
@@ -183,6 +186,20 @@
 
     window.addEventListener('keydown', (e) => {
       const k = e.key.toLowerCase();
+
+      // First keypress starts the game
+      if (!started) {
+        started = true;
+        running = true;
+        overlay.hidden = true;
+        // Also process direction on the starting press
+        if (k === 'arrowup' || k === 'w') setDir(0,-1);
+        else if (k === 'arrowdown' || k === 's') setDir(0,1);
+        else if (k === 'arrowleft' || k === 'a') setDir(-1,0);
+        else if (k === 'arrowright' || k === 'd') setDir(1,0);
+        return;
+      }
+
       if (k === 'arrowup' || k === 'w') setDir(0,-1);
       else if (k === 'arrowdown' || k === 's') setDir(0,1);
       else if (k === 'arrowleft' || k === 'a') setDir(-1,0);
@@ -274,7 +291,7 @@
     }
 
     let last = performance.now();
-    reset();
+    reset(); // Show start overlay; game waits for keypress
 
     function loop(now){
       const dt = now - last;
