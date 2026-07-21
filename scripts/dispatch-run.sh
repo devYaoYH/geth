@@ -61,24 +61,52 @@ except Exception as e:
 " 2>/dev/null || echo '{"error":"yaml parse failed"}')
 
 # Check if the operator applied a difficulty:* label
-DIFF_LABEL=$(A "$GAPI/issues/$NUM/timeline?limit=100" | python3 -c "
+# Two-step gate:
+#   Step 1 — read the issue's CURRENT labels (source of truth for what's
+#   applied now).  A removed label is not in the current set, so we don't
+#   need to distinguish add vs remove from the timeline for that.
+#   Step 2 — verify via timeline that the most recent ADD event (body='1')
+#   for that label was by the operator.  Forgejo label events: add →
+#   body='1', remove → body=''; there is no 'removed' boolean field.
+DIFF_LABEL=$(A "$GAPI/issues/$NUM" | python3 -c "
+import json,sys
+try:
+    issue = json.load(sys.stdin)
+except:
+    sys.exit(0)
+for l in issue.get('labels', []):
+    name = l.get('name', '')
+    if name.startswith('difficulty:'):
+        print(name)
+        sys.exit(0)
+print('')
+")
+
+if [[ -n "$DIFF_LABEL" ]]; then
+  # Step 2: verify the operator made the most recent add for this label
+  DIFF_ACTOR=$(A "$GAPI/issues/$NUM/timeline?limit=100" | python3 -c "
 import json,sys
 op = sys.argv[1]
+target = sys.argv[2]
 try:
     events = json.load(sys.stdin)
 except:
     sys.exit(0)
-# Walk events in reverse (most recent first) to find the latest operator-add
 for e in reversed(events):
-    if e.get('type') == 'label' and not e.get('removed', False):
-        label_name = (e.get('label') or {}).get('name', '')
-        if label_name.startswith('difficulty:'):
+    if e.get('type') == 'label' and e.get('body') == '1':
+        ln = (e.get('label') or {}).get('name', '')
+        if ln == target:
             actor = (e.get('user') or {}).get('login', '')
-            if actor == op:
-                print(label_name)
-                sys.exit(0)
+            print(actor)
+            sys.exit(0)
 print('')
-" "$OPERATOR_LOGIN")
+" "$OPERATOR_LOGIN" "$DIFF_LABEL")
+
+  if [[ "$DIFF_ACTOR" != "$OPERATOR_LOGIN" ]]; then
+    echo "[dispatch-run] #$NUM: label '$DIFF_LABEL' present but not added by operator (actor='${DIFF_ACTOR:-none}'); ignoring"
+    DIFF_LABEL=""
+  fi
+fi
 
 if [[ -n "$DIFF_LABEL" ]]; then
   # Gate 1: operator-applied label found. Extract tier key (after 'difficulty:')
@@ -117,8 +145,11 @@ print(t['model'] + ':' + str(t['budget_usd']))
       DIFF_SOURCE="difficulty-label"
       echo "[dispatch-run] #$NUM: resolved tier '$TIER' -> model=$DIFF_MODEL budget=\"$DIFF_BUDGET\""
 
-      # Gate 3: check if model is live in LiteLLM before launch
+      # Gate 3: check if model is live in LiteLLM before launch.
+      # Distinguish "model definitively absent" (fall back) from
+      # "couldn't reach LiteLLM" (abort — don't silently run the wrong model).
       LLM_CHECK=$(/usr/bin/curl -sk --resolve "llm.${NODE_DOMAIN}:443:127.0.0.1" \
+        --max-time 10 \
         -H "Authorization: Bearer ${LITELLM_MASTER_KEY:-}" \
         "https://llm.${NODE_DOMAIN}/v1/models" 2>/dev/null \
         | python3 -c "
@@ -138,13 +169,25 @@ except Exception as e:
     print('error:' + str(e))
 " "$DIFF_MODEL" 2>/dev/null || echo "error:curl_failed")
 
-      if [[ "$LLM_CHECK" != "live" ]]; then
-        echo "[dispatch-run] #$NUM: model '$DIFF_MODEL' not live in LiteLLM ($LLM_CHECK); falling back to deepseek-flash"
-        say "$NUM" "⚠️ Tier \`$TIER\` resolved to model \`$DIFF_MODEL\` but that model is not currently served by LiteLLM. Falling back to \`deepseek-flash\`. Check \`config/litellm.yaml\` if this persists."
-        DIFF_MODEL="deepseek-flash"
-        DIFF_BUDGET="0.50"
-        DIFF_SOURCE="fallback"
-      fi
+      case "$LLM_CHECK" in
+        live)
+          # All good — proceed with the resolved model
+          ;;
+        not_found)
+          echo "[dispatch-run] #$NUM: model '$DIFF_MODEL' not in LiteLLM model list; falling back to deepseek-flash"
+          say "$NUM" "⚠️ Tier \`$TIER\` resolved to model \`$DIFF_MODEL\` but that model is not currently served by LiteLLM. Falling back to \`deepseek-flash\`. Check \`config/litellm.yaml\` if this persists."
+          DIFF_MODEL="deepseek-flash"
+          DIFF_BUDGET="0.50"
+          DIFF_SOURCE="fallback"
+          ;;
+        *)
+          echo "[dispatch-run] #$NUM: could not reach LiteLLM ($LLM_CHECK); aborting — won't silently run the wrong model"
+          say "$NUM" "⚠️ Could not reach LiteLLM to verify model availability (\`$LLM_CHECK\`). Aborting this run — the model for tier \`$TIER\` (\`$DIFF_MODEL\`) may be live but cannot be confirmed. Check LiteLLM and retry by assigning the issue again."
+          # Clean up the in-progress label so the issue isn't stranded
+          [[ -n "$INPROG_ID" ]] && A -X DELETE "$GAPI/issues/$NUM/labels/$INPROG_ID" >/dev/null || true
+          exit 1
+          ;;
+      esac
       ;;
   esac
 fi

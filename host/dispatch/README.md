@@ -98,8 +98,10 @@ choice as *policy* that can be retuned without changing labels or wiring.
 
 The four `difficulty:*` labels are created automatically by `deploy.sh`
 (via `scripts/ensure-tier-labels.sh`) on every deploy — no manual setup
-needed. The script is idempotent: Forgejo deduplicates label creation by name,
-so it's safe to run on every deploy cycle.
+needed. The script is safe to re-run: it checks for label existence via the
+API before creating, avoiding the triplication problem (Forgejo does **not**
+deduplicate label creation by name — see the `in-progress` note in
+`task-dispatcher.sh`).
 
 The operator's token must have `write` on coordination (the same scope the
 agent holds).

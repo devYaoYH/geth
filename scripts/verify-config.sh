@@ -65,7 +65,7 @@ for f in $YAML_FILES; do
 done
 [[ "$FAIL" -eq 0 ]] && note "OK: all YAML parses" || true
 
-# --- 4. Dispatch tiers reconciled with litellm ---------------------------------
+# --- 3. Dispatch tiers reconciled with litellm ---------------------------------
 sec "dispatch tiers vs litellm"
 if [[ -f "config/dispatch-tiers.yaml" ]]; then
   python3 -c "
@@ -96,7 +96,7 @@ else
   note "SKIP: no config/dispatch-tiers.yaml (not yet deployed)"
 fi
 
-# --- 3. Shell lint ----------------------------------------------------------
+# --- 4. Shell lint ----------------------------------------------------------
 sec "shellcheck"
 if ! command -v shellcheck >/dev/null 2>&1; then
   note "SKIP: no shellcheck here (present in the jail image)"
