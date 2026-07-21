@@ -30,11 +30,15 @@ fi
 # The four tiers, ordered. Color is the same blue-green as in-progress.
 # Safe to re-run: the explicit pre-check below avoids the triplication
 # problem (Forgejo does NOT deduplicate by name).
+#
+# Fields are pipe-delimited (name|color|description) because the label
+# NAMES contain colons ("difficulty:trivial"); a colon separator would
+# mis-split the name into the color/description fields.
 LABELS=(
-  "difficulty:trivial:#00b894:Trivial — quick edit, no structural change"
-  "difficulty:easy:#00cec9:Easy — single file, well-understood change"
-  "difficulty:moderate:#74b9ff:Moderate — multi-file, needs design attention"
-  "difficulty:hard:#a29bfe:Hard — cross-cutting, risky, or complex"
+  "difficulty:trivial|#00b894|Trivial — quick edit, no structural change"
+  "difficulty:easy|#00cec9|Easy — single file, well-understood change"
+  "difficulty:moderate|#74b9ff|Moderate — multi-file, needs design attention"
+  "difficulty:hard|#a29bfe|Hard — cross-cutting, risky, or complex"
 )
 
 # Shared helper: validate a single label definition by constructing its
@@ -54,7 +58,7 @@ print(payload)
 
 FAIL=0
 for entry in "${LABELS[@]}"; do
-  IFS=: read -r name color desc <<<"$entry"
+  IFS='|' read -r name color desc <<<"$entry"
 
   # Validate label definition in all modes (verify + normal). Catches
   # quoting/encoding issues at PR time (verify-config.sh) AND at runtime.
@@ -77,14 +81,21 @@ for l in labels:
   if [[ -n "$EXISTING" ]]; then
     echo "label '$name' already exists (as '$EXISTING'); skipping"
   else
-    A -X POST "$GAPI/labels" \
+    RESP=$(A -X POST "$GAPI/labels" \
       -d "$(python3 -c '
 import json,sys
 name, color, desc = sys.argv[1], sys.argv[2], sys.argv[3]
 print(json.dumps({"name": name, "color": color, "description": desc}))
-' "$name" "$color" "$desc")" \
-      >/dev/null
-    echo "created label '$name'"
+' "$name" "$color" "$desc")")
+    # Verify the API actually created the label (returns an object with an
+    # id); a rejected color or malformed name yields an error object, which
+    # we must not report as success.
+    if echo "$RESP" | python3 -c 'import json,sys; sys.exit(0 if isinstance(json.load(sys.stdin).get("id"), int) else 1)' 2>/dev/null; then
+      echo "created label '$name'"
+    else
+      echo "FAIL: label '$name' — API rejected creation: $RESP"
+      FAIL=1
+    fi
   fi
 done
 
@@ -97,4 +108,8 @@ if [[ "$VERIFY" -eq 1 ]]; then
   exit "$FAIL"
 fi
 
+if [[ "$FAIL" -ne 0 ]]; then
+  echo "ensure-tier-labels: FAIL — one or more labels could not be created"
+  exit 1
+fi
 echo "ensure-tier-labels: done"
