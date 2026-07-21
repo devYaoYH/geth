@@ -62,6 +62,18 @@ let sparks = [];
 let floorMeta = { node: "…", running: 0, total: 0, sources: {} };
 let sinceId = 0;
 let hovered = null;
+let focused = null;
+let paused = false;
+let motion = 0;
+const inspector = document.getElementById("inspector");
+const pulseCopy = document.getElementById("pulsecopy");
+
+// A small deterministic field gives the floor depth before any data arrives.
+// It is deliberately subtle: this is a map of real boundaries, not a game HUD.
+const stars = Array.from({ length: 92 }, (_, i) => ({
+  x: (Math.sin(i * 97.13) * .5 + .5), y: (Math.sin(i * 31.71 + 2) * .5 + .5),
+  r: .35 + (i % 4) * .2, a: .12 + (i % 5) * .035,
+}));
 
 // --- sprite cache -------------------------------------------------------------
 const sprites = {};
@@ -108,6 +120,46 @@ function layout(snapshot) {
   edges = snapshot.edges;
   floorMeta = { node: snapshot.node, running: snapshot.running, total: snapshot.total,
                 sources: snapshot.sources, yardOverflow: snapshot.yard_overflow || 0 };
+  renderPulse();
+  if (focused) {
+    focused = rooms.get(focused.name) || null;
+    renderInspector();
+  }
+}
+
+function renderPulse() {
+  if (!floorMeta.total) return;
+  const activeEdges = edges.filter(e => rooms.get(e.from)?.state === "running"
+    || rooms.get(e.to)?.state === "running").length;
+  pulseCopy.innerHTML = `<span class="metric">${floorMeta.running}/${floorMeta.total}</span> rooms lit`
+    + ` · <span class="metric">${activeEdges}</span> declared pathways`;
+}
+
+function escapeHtml(value) {
+  return String(value || "").replace(/[&<>"']/g, c =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+}
+
+function renderInspector() {
+  if (!focused) {
+    inspector.classList.remove("open");
+    inspector.innerHTML = "";
+    return;
+  }
+  const linked = edges.filter(e => e.from === focused.name || e.to === focused.name);
+  const inbound = linked.filter(e => e.to === focused.name).map(e => rooms.get(e.from)?.label || e.from);
+  const outbound = linked.filter(e => e.from === focused.name).map(e => rooms.get(e.to)?.label || e.to);
+  const state = focused.state === "running" ? "lit / active" : focused.state || "unpolled";
+  inspector.innerHTML = `<button type="button" aria-label="Close room details">×</button>`
+    + `<div class="kicker">${escapeHtml(WINGS[focused.wing]?.label || focused.wing)} · ${escapeHtml(state)}</div>`
+    + `<h2>${escapeHtml(focused.label)}</h2>`
+    + `<p>${escapeHtml(focused.blurb || "No description declared.")}</p>`
+    + `<div class="line"><span>signals in</span><span>${escapeHtml(inbound.join(", ") || "—")}</span></div>`
+    + `<div class="line"><span>signals out</span><span>${escapeHtml(outbound.join(", ") || "—")}</span></div>`
+    + `<div class="line"><span>declared paths</span><span>${linked.length}</span></div>`;
+  inspector.classList.add("open");
+  const close = inspector.querySelector("button");
+  close.addEventListener("click", () => { focused = null; renderInspector(); });
 }
 
 // --- workers ------------------------------------------------------------------
@@ -157,6 +209,19 @@ function workerPos(w) {
   return w.path[w.path.length - 1];
 }
 
+function pointOnPath(pts, progress) {
+  let total = 0;
+  for (let i = 1; i < pts.length; i++) total += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+  let d = total * progress;
+  for (let i = 1; i < pts.length; i++) {
+    const seg = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+    if (d <= seg) return [pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * d / seg,
+                         pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * d / seg];
+    d -= seg;
+  }
+  return pts[pts.length - 1];
+}
+
 // A quiet floor still breathes: ambient couriers walk declared edges at a
 // rate tied to how much of the node is actually running.
 let ambientTimer = 0;
@@ -181,9 +246,57 @@ function diamond(cx, cy, hw, hh) {
   ctx.closePath();
 }
 
+function drawBackdrop(now) {
+  const drift = now / 26000;
+  for (const star of stars) {
+    const x = (star.x * canvas.width + Math.sin(drift + star.y * 9) * 16) % canvas.width;
+    const y = star.y * canvas.height;
+    ctx.fillStyle = `rgba(153, 196, 219, ${star.a})`;
+    ctx.fillRect(x, y, star.r * devicePixelRatio, star.r * devicePixelRatio);
+  }
+  const horizon = ctx.createLinearGradient(0, canvas.height * .52, 0, canvas.height);
+  horizon.addColorStop(0, "rgba(19,24,37,0)");
+  horizon.addColorStop(1, "rgba(10,13,24,.28)");
+  ctx.fillStyle = horizon;
+  ctx.fillRect(0, canvas.height * .5, canvas.width, canvas.height * .5);
+}
+
+function drawWingAura(wing, w, members, now) {
+  if (!members.length) return;
+  const minGx = Math.min(...members.map(r => r.gx)) - .82;
+  const maxGx = Math.max(...members.map(r => r.gx)) + .82;
+  const minGy = Math.min(...members.map(r => r.gy)) - .82;
+  const maxGy = Math.max(...members.map(r => r.gy)) + .82;
+  const corners = [[minGx, minGy], [maxGx, minGy], [maxGx, maxGy], [minGx, maxGy]]
+    .map(([gx, gy]) => toScreen(...proj(gx, gy, w.level || 0)));
+  const energy = members.filter(r => r.state === "running").length / members.length;
+  const selected = focused && (WINGS[focused.wing] ? focused.wing : "overflow") === wing;
+  const alpha = .025 + energy * .035 + (selected ? .08 : 0);
+  ctx.beginPath();
+  corners.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+  ctx.closePath();
+  ctx.fillStyle = `rgba(124, 224, 211, ${alpha})`;
+  ctx.fill();
+  ctx.strokeStyle = selected ? "rgba(217,164,65,.72)" : `rgba(124, 224, 211, ${.08 + energy * .12})`;
+  ctx.lineWidth = selected ? 1.35 : 1;
+  ctx.setLineDash([3 * cam.zoom, 8 * cam.zoom]);
+  ctx.lineDashOffset = -(now / 45) % (11 * cam.zoom);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.lineDashOffset = 0;
+}
+
 function draw(now, dt) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   const z = cam.zoom;
+  drawBackdrop(now);
+
+  // Wing auras make the system's trust zones visible before one reads a label.
+  for (const [wing, w] of Object.entries(WINGS)) {
+    const members = [...rooms.values()].filter(r =>
+      (WINGS[r.wing] ? r.wing : "overflow") === wing);
+    drawWingAura(wing, w, members, now);
+  }
 
   // wing labels + floor pads
   ctx.textAlign = "center";
@@ -238,26 +351,42 @@ function draw(now, dt) {
       : r.state === "exited" ? "rgba(239, 100, 97, 0.07)"
       : "rgba(244, 237, 228, 0.04)";
     ctx.fill();
-    ctx.strokeStyle = hovered === r ? "#d9a441" : "rgba(244, 237, 228, 0.14)";
-    ctx.lineWidth = hovered === r ? 1.6 : 1;
+    ctx.strokeStyle = hovered === r || focused === r ? "#d9a441" : "rgba(244, 237, 228, 0.14)";
+    ctx.lineWidth = hovered === r || focused === r ? 1.6 : 1;
     ctx.stroke();
   }
 
-  // conveyor edges, faint; the hovered room's edges light up
+  // Conveyor edges are the declared, reviewable capability graph. A slow
+  // moving signal dot makes direction legible without pretending to show
+  // unobserved traffic; real observed events remain the worker sprites.
   for (const e of edges) {
     const p = roomPath(e.from, e.to);
     if (!p) continue;
-    const hot = hovered && (e.from === hovered.name || e.to === hovered.name);
+    const hot = (hovered && (e.from === hovered.name || e.to === hovered.name))
+      || (focused && (e.from === focused.name || e.to === focused.name));
+    const live = rooms.get(e.from)?.state === "running" || rooms.get(e.to)?.state === "running";
     ctx.beginPath();
     p.pts.forEach(([px, py], i) => {
       const [x, y] = toScreen(px, py);
       i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
     });
-    ctx.strokeStyle = hot ? (KIND_COLOR[e.kind] || "#d9a441") : "rgba(244,237,228,0.055)";
-    ctx.lineWidth = hot ? 1.8 : 1;
+    ctx.strokeStyle = hot ? (KIND_COLOR[e.kind] || "#d9a441")
+      : live ? "rgba(124,224,211,0.13)" : "rgba(244,237,228,0.045)";
+    ctx.lineWidth = hot ? 2 : live ? 1.15 : 1;
     ctx.setLineDash(hot ? [] : [4 * z, 6 * z]);
     ctx.stroke();
     ctx.setLineDash([]);
+    if (live && (hot || Math.sin((motion + p.len) / 700) > .25)) {
+      const [px, py] = pointOnPath(p.pts, ((motion / 8500) + p.len / 1000) % 1);
+      const [x, y] = toScreen(px, py);
+      ctx.beginPath();
+      ctx.arc(x, y, (hot ? 3 : 2) * z, 0, Math.PI * 2);
+      ctx.fillStyle = hot ? (KIND_COLOR[e.kind] || "#d9a441") : "rgba(124,224,211,.72)";
+      ctx.shadowColor = ctx.fillStyle;
+      ctx.shadowBlur = 9 * z;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
   }
 
   // depth-sorted rooms + workers. A raised level is its own deck in front of
@@ -279,7 +408,10 @@ function draw(now, dt) {
       const [sx, sy] = proj(r.gx, r.gy, r.level);
       const [x, y] = toScreen(sx, sy);
       const s = (SIZE_SCALE[r.size] || 1) * z;
-      const dark = r.state !== "running";
+      // An unpolled room is an honest absence of telemetry, not evidence the
+      // service is stopped. Keep it legible while reserving the blackout for
+      // a confirmed exited container.
+      const dark = r.state === "exited";
       if (r.state === "running") {          // breathing glow
         const pulse = 0.55 + 0.45 * Math.sin(now / 900 + r.gx * 3.1);
         diamond(x, y, (TILE_W / 2 + 2) * z, (TILE_H / 2 + 1) * z);
@@ -305,8 +437,9 @@ function draw(now, dt) {
         ctx.fill();
       }
       ctx.font = `${Math.max(8, 10.5 * z)}px "Avenir Next", system-ui, sans-serif`;
-      ctx.fillStyle = hovered === r ? "#d9a441"
-        : dark ? "rgba(180, 186, 204, 0.45)" : "rgba(244, 237, 228, 0.78)";
+      ctx.fillStyle = hovered === r || focused === r ? "#d9a441"
+        : dark ? "rgba(180, 186, 204, 0.45)" : r.state === "unpolled"
+          ? "rgba(244, 237, 228, 0.63)" : "rgba(244, 237, 228, 0.78)";
       const suffix = r.state === "running" ? "" : r.state === "exited" ? " · stopped"
         : r.state === "unpolled" ? "" : ` · ${r.state}`;
       const cap = r.wing === "yard" ? 12 : 22;
@@ -345,10 +478,13 @@ let last = performance.now();
 function frame(now) {
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
-  for (const w of workers) w.t += w.speed * dt;
-  workers = workers.filter(w => w.t < w.len);
-  ambient(dt);
-  draw(now, dt);
+  if (!paused) {
+    motion += dt * 1000;
+    for (const w of workers) w.t += w.speed * dt;
+    workers = workers.filter(w => w.t < w.len);
+    ambient(dt);
+  }
+  draw(now, paused ? 0 : dt);
   requestAnimationFrame(frame);
 }
 
@@ -442,16 +578,34 @@ canvas.addEventListener("pointermove", e => {
   } else tip.style.display = "none";
 });
 canvas.addEventListener("pointerup", e => {
-  const wasDrag = drag && (Math.abs(e.clientX - drag.x) > 5 || Math.abs(e.clientY - drag.y) > 5);
+  const wasClick = drag && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 7;
   drag = null; canvas.classList.remove("dragging");
   canvas.releasePointerCapture(e.pointerId);
-  // A click (not a pan drag) on a loggable room opens the log panel.
-  if (!wasDrag && hovered && isLoggable(hovered)) openLogPanel(hovered);
+  if (wasClick) {
+    const px = e.clientX * devicePixelRatio, py = e.clientY * devicePixelRatio;
+    let hit = null;
+    for (const r of rooms.values()) {
+      const [sx, sy] = proj(r.gx, r.gy, r.level);
+      const [x, y] = toScreen(sx, sy);
+      if (Math.abs(px - x) < 55 * cam.zoom && Math.abs(py - (y - 25 * cam.zoom)) < 55 * cam.zoom)
+        hit = r;
+    }
+    focused = hit && focused !== hit ? hit : null;
+    renderInspector();
+    // The topology inspector applies to every room. Runnable agent/task rooms
+    // additionally retain main's live-log drill-down without replacing it.
+    if (hit && isLoggable(hit)) openLogPanel(hit);
+  }
 });
 canvas.addEventListener("wheel", e => {
   e.preventDefault();
   cam.zoom = Math.min(2.4, Math.max(0.45, cam.zoom * (e.deltaY < 0 ? 1.1 : 0.9)));
 }, { passive: false });
+addEventListener("keydown", e => {
+  if (e.key === "Escape") { focused = null; renderInspector(); closeLogPanel(); }
+  if (e.key === " ") { e.preventDefault(); paused = !paused; }
+  if (e.key === "0") { cam = { x: 0, y: 0, zoom: Math.min(1.45, Math.max(.7, canvas.width / 1600)) }; }
+});
 
 // --- log panel ----------------------------------------------------------------
 // Rooms that can show logs: agent-dev instances, task yard containers, and
@@ -519,7 +673,7 @@ logClose.addEventListener("click", closeLogPanel);
 
 // --- go -----------------------------------------------------------------------
 resize();
-cam.zoom = Math.min(1.15, Math.max(0.6, canvas.width / 2100));
+cam.zoom = Math.min(1.45, Math.max(0.7, canvas.width / 1600));
 pollFloor().then(pollActivity);
 setInterval(pollFloor, 15000);
 setInterval(pollActivity, 5000);
