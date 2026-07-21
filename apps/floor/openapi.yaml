@@ -74,6 +74,7 @@ paths:
         "400":
           description: Invalid container name
 
+  /v1/activity:
     get:
       summary: The motion — events since a cursor, plus live container states
       parameters:
