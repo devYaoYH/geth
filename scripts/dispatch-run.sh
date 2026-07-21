@@ -183,8 +183,11 @@ except Exception as e:
         *)
           echo "[dispatch-run] #$NUM: could not reach LiteLLM ($LLM_CHECK); aborting — won't silently run the wrong model"
           say "$NUM" "⚠️ Could not reach LiteLLM to verify model availability (\`$LLM_CHECK\`). Aborting this run — the model for tier \`$TIER\` (\`$DIFF_MODEL\`) may be live but cannot be confirmed. Check LiteLLM and retry by assigning the issue again."
+          # Set cooldown stamp so the dispatcher doesn't re-dispatch during an outage
+          touch "$FSTAMP"
           # Clean up the in-progress label so the issue isn't stranded
           [[ -n "$INPROG_ID" ]] && A -X DELETE "$GAPI/issues/$NUM/labels/$INPROG_ID" >/dev/null || true
+          audit abort "LiteLlm unreachable: $LLM_CHECK"
           exit 1
           ;;
       esac

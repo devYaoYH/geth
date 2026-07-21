@@ -4,9 +4,9 @@
 #
 # Operator workflow: apply a difficulty:trivial|easy|moderate|hard label to
 # a coordination issue. The dispatcher resolves the label to a model + budget
-# and passes them to run-task.sh. No label = default tier (moderate).
+# and passes them to run-task.sh. No label = default tier (easy).
 # Agent-applied difficulty labels are ignored (anti-escalation).
-default: moderate
+default: easy
 tiers:
   trivial:  { model: deepseek-flash, budget_usd: 0.50 }
   easy:     { model: deepseek-flash, budget_usd: 1.00 }
