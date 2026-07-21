@@ -80,6 +80,13 @@ reset_worker() {
   colima delete --profile "$SUT_PROFILE" --data --force >/dev/null 2>&1 || true
 }
 
+vm_exec() {
+  # Colima passes arguments after `--` directly to exec, rather than through a
+  # shell. Always invoke bash explicitly; otherwise a compound command such as
+  # `rm ...; mkdir ...` is looked up as a literal binary name.
+  colima ssh --profile "$SUT_PROFILE" -- bash -lc "$1"
+}
+
 doctor() {
   if [[ "$(uname -s)" != "Darwin" ]]; then
     echo "SUT provider: KVM (not provisioned by this macOS controller yet)"
@@ -115,16 +122,23 @@ init() {
 }
 
 load_node_env() {
-  [[ -f "$ROOT/.env" ]] || die "missing .env; bring the node up before enabling the SUT watcher"
-  set -a; source "$ROOT/.env"; set +a
+  # The normal watcher reads the node-local .env.  Keeping environment values
+  # when the file is absent also permits an operator to reproduce a result
+  # from a clean checkout without copying any secret file into it.
+  if [[ -f "$ROOT/.env" ]]; then
+    set -a; source "$ROOT/.env"; set +a
+  fi
   : "${NODE_DOMAIN:?NODE_DOMAIN is required}"
   : "${NODE_CONFIG_REPO:?NODE_CONFIG_REPO is required}"
-  : "${FORGEJO_TOKEN:?FORGEJO_TOKEN is required}"
+  # The watcher needs only repository reads plus PR read/comment access. Its
+  # dedicated token keeps it separate from the broader node-operations token.
+  SUT_FORGEJO_TOKEN="${SUT_FORGEJO_TOKEN:-${FORGEJO_TOKEN:-}}"
+  : "${SUT_FORGEJO_TOKEN:?SUT_FORGEJO_TOKEN is required}"
 }
 
 api() {
-  /usr/bin/curl -sk --resolve "git.${NODE_DOMAIN}:443:127.0.0.1" \
-    -H "Authorization: token $FORGEJO_TOKEN" -H "Content-Type: application/json" "$@"
+  /usr/bin/curl -fskS --resolve "git.${NODE_DOMAIN}:443:127.0.0.1" \
+    -H "Authorization: token $SUT_FORGEJO_TOKEN" -H "Content-Type: application/json" "$@"
 }
 
 candidate_checkout() {
@@ -134,50 +148,93 @@ candidate_checkout() {
   # The token is an ephemeral git configuration value, never part of the
   # remote URL or candidate tree sent to the VM.
   GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraHeader \
-    GIT_CONFIG_VALUE_0="Authorization: token $FORGEJO_TOKEN" \
+    GIT_CONFIG_VALUE_0="Authorization: token $SUT_FORGEJO_TOKEN" \
     git clone --quiet --no-checkout "$url" "$checkout"
   GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraHeader \
-    GIT_CONFIG_VALUE_0="Authorization: token $FORGEJO_TOKEN" \
+    GIT_CONFIG_VALUE_0="Authorization: token $SUT_FORGEJO_TOKEN" \
     git -C "$checkout" fetch --quiet --depth 1 origin "$sha"
   git -C "$checkout" checkout --quiet --detach FETCH_HEAD
   [[ "$(git -C "$checkout" rev-parse HEAD)" == "$sha"* ]] || die "checkout head did not match PR #$pr SHA"
+}
+
+checkout_build_sources() {
+  local destination="$1" source_file="$ROOT/host/sut/sources.toml"
+  [[ -f "$source_file" ]] || die "missing trusted SUT source allowlist: $source_file"
+  mkdir -p "$destination"
+  python3 - "$source_file" "$destination/build-sources.json" <<'PY'
+import json, pathlib, sys, tomllib
+src, out = map(pathlib.Path, sys.argv[1:])
+items = tomllib.loads(src.read_text()).get("source", [])
+for item in items:
+    if not all(isinstance(item.get(key), str) and item[key] for key in ("name", "image", "repo", "ref")):
+        raise SystemExit("invalid SUT source allowlist entry")
+    if not all(c.isalnum() or c in "._/-:" for c in item["name"] + item["image"] + item["repo"] + item["ref"]):
+        raise SystemExit("unsafe SUT source allowlist entry")
+out.write_text(json.dumps(items, sort_keys=True))
+PY
+  while IFS=$'\t' read -r name repo ref; do
+    [[ -n "$name" ]] || continue
+    local target="$destination/$name"
+    rm -rf "$target"
+    GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraHeader \
+      GIT_CONFIG_VALUE_0="Authorization: token $SUT_FORGEJO_TOKEN" \
+      git clone --quiet --no-checkout "https://git.${NODE_DOMAIN}/${repo}.git" "$target"
+    GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraHeader \
+      GIT_CONFIG_VALUE_0="Authorization: token $SUT_FORGEJO_TOKEN" \
+      git -C "$target" fetch --quiet --depth 1 origin "$ref"
+    git -C "$target" checkout --quiet --detach FETCH_HEAD
+  done < <(python3 - "$source_file" <<'PY'
+import pathlib, sys, tomllib
+for item in tomllib.loads(pathlib.Path(sys.argv[1]).read_text()).get("source", []):
+    print("\t".join((item["name"], item["repo"], item["ref"])))
+PY
+)
 }
 
 run() (
   # A subshell gives every failure path a real cleanup boundary. In particular,
   # a malformed candidate archive must not leave a reusable VM behind.
   set -euo pipefail
-  local pr="${1:-}" sha="${2:-}" run checkout vmroot result log rc
+  local pr="${1:-}" sha="${2:-}" run checkout dependencies vmroot result log worker_log rc
   valid_pr "$pr" || die "usage: $0 run <pr-number> <head-sha>"
   valid_sha "$sha" || die "invalid head SHA"
   load_node_env
   start_worker
   run="pr-${pr}-${sha:0:12}"
   checkout="$STATE/work/$run"
+  dependencies="$STATE/dependencies/$run"
   vmroot="/tmp/geth-sut/$run"
   result="$STATE/results/$run.json"
   log="$STATE/results/$run.log"
-  mkdir -p "$STATE/work" "$STATE/results"
-  trap 'rm -rf "$checkout"; reset_worker' EXIT
+  worker_log="$STATE/results/$run.worker.log"
+  mkdir -p "$STATE/work" "$STATE/dependencies" "$STATE/results"
+  trap 'rm -rf "$checkout" "$dependencies"; reset_worker' EXIT
 
   candidate_checkout "$pr" "$sha" "$checkout"
+  checkout_build_sources "$dependencies"
   note "sending secret-free candidate #$pr ($sha) to $SUT_PROFILE"
-  colima ssh --profile "$SUT_PROFILE" -- "rm -rf '$vmroot'; mkdir -p '$vmroot'"
-  tar -C "$checkout" --exclude=.git --exclude=.env --exclude=secrets \
-    --exclude=.task-dispatch --exclude=.task-sut -cf - . \
-    | colima ssh --profile "$SUT_PROFILE" -- "tar -xf - -C '$vmroot'"
+  vm_exec "rm -rf '$vmroot'; mkdir -p '$vmroot'"
+  COPYFILE_DISABLE=1 tar -C "$checkout" --exclude=.git --exclude=.env --exclude=secrets \
+    --exclude=.task-dispatch --exclude=.task-sut -cf - . 2>>"$log" \
+    | colima ssh --profile "$SUT_PROFILE" -- bash -lc "tar --warning=no-unknown-keyword -xf - -C '$vmroot'"
+  vm_exec "mkdir -p '$vmroot/dependencies'"
+  COPYFILE_DISABLE=1 tar -C "$dependencies" --exclude=.git --exclude='*/.git' -cf - . 2>>"$log" \
+    | colima ssh --profile "$SUT_PROFILE" -- bash -lc "tar --warning=no-unknown-keyword -xf - -C '$vmroot/dependencies'"
   # The runner comes from the trusted, merged host checkout — never the PR.
-  colima ssh --profile "$SUT_PROFILE" -- "rm -f /tmp/geth-sut-vm-run.sh"
+  vm_exec "rm -f /tmp/geth-sut-vm-run.sh"
   cat "$ROOT/host/sut/sut-vm-run.sh" \
-    | colima ssh --profile "$SUT_PROFILE" -- "cat > /tmp/geth-sut-vm-run.sh && chmod 700 /tmp/geth-sut-vm-run.sh"
+    | colima ssh --profile "$SUT_PROFILE" -- bash -lc "cat > /tmp/geth-sut-vm-run.sh && chmod 700 /tmp/geth-sut-vm-run.sh"
 
   set +e
-  colima ssh --profile "$SUT_PROFILE" -- "SUT_TIMEOUT='$SUT_TIMEOUT' /tmp/geth-sut-vm-run.sh '$vmroot'" >"$log" 2>&1
+  colima ssh --profile "$SUT_PROFILE" -- bash -lc "SUT_TIMEOUT='$SUT_TIMEOUT' /tmp/geth-sut-vm-run.sh '$vmroot'" >"$log" 2>&1
   rc=$?
   set -e
-  colima ssh --profile "$SUT_PROFILE" -- "cat '$vmroot/.sut-result.json'" >"$result" 2>/dev/null || \
+  colima ssh --profile "$SUT_PROFILE" -- bash -lc "cat '$vmroot/.sut-result.json'" >"$result" 2>/dev/null || \
     printf '{"status":"error","reason":"worker did not emit a result"}\n' >"$result"
-  colima ssh --profile "$SUT_PROFILE" -- "rm -rf '$vmroot'" || true
+  # The VM root is destroyed after this run. Pull its full Compose/test output
+  # first; the compact JSON alone is not enough to repair a red PR.
+  colima ssh --profile "$SUT_PROFILE" -- bash -lc "cat '$vmroot/.sut-worker.log'" >"$worker_log" 2>/dev/null || true
+  vm_exec "rm -rf '$vmroot'" || true
   if [[ "$rc" -eq 0 ]]; then
     note "PASS: $result"
   else
@@ -198,14 +255,16 @@ comment_result() {
 watch() {
   load_node_env
   mkdir -p "$STATE/seen"
-  local lock="$STATE/watch.lock" rows pr sha actor stamp rc
+  local lock="$STATE/watch.lock" rows pr sha actor stamp rc selected_pr="${SUT_PR:-}"
+  [[ -z "$selected_pr" ]] || valid_pr "$selected_pr" || die "SUT_PR must be a positive pull-request number"
   if ! mkdir "$lock" 2>/dev/null; then note "watch already running"; return 0; fi
   trap 'rmdir "$lock" 2>/dev/null || true' RETURN
   rows=$(api "https://git.${NODE_DOMAIN}/api/v1/repos/${NODE_CONFIG_REPO}/pulls?state=open&limit=50" \
     | python3 -c 'import json,sys
+selected=sys.argv[1]
 for p in json.load(sys.stdin):
- h=p.get("head") or {}; u=(h.get("user") or {}).get("login", "")
- if u == "agent-dev": print(p["number"], h.get("sha", ""))')
+ h=p.get("head") or {}; u=(p.get("user") or {}).get("login", "")
+ if u == "agent-dev" and (not selected or str(p["number"]) == selected): print(p["number"], h.get("sha", ""))' "$selected_pr")
   while read -r pr sha; do
     [[ -n "${pr:-}" ]] || continue
     valid_pr "$pr" && valid_sha "$sha" || { note "skip malformed PR record"; continue; }

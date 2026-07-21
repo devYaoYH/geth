@@ -24,8 +24,9 @@ KVM worker.
 ## Install on macOS
 
 1. Bring up the node and run `./scripts/bootstrap-forgejo.sh`; this supplies
-   the local-only `FORGEJO_TOKEN`, `NODE_DOMAIN`, and `NODE_CONFIG_REPO` used by
-   the watcher.
+   the local-only `SUT_FORGEJO_TOKEN`, `NODE_DOMAIN`, and `NODE_CONFIG_REPO`
+   used by the watcher. The SUT token is limited to source/PR reads and PR
+   evidence comments; it is separate from the node-operations token.
 2. Install Colima, then run:
 
    ```sh
@@ -42,7 +43,19 @@ KVM worker.
 
 `watch` tests every open PR whose head owner is `agent-dev`, once per head SHA.
 The launchd job invokes it every two minutes. Evidence lives only under the
-gitignored `.task-sut/results/` directory and as a compact Forgejo PR comment.
+gitignored `.task-sut/results/` directory (JSON result, controller log, and
+worker Compose/test log) and as a compact Forgejo PR comment.
+
+For a manual reproduction from a clean checkout, pass the three node values as
+process environment instead of creating an `.env` there:
+
+```sh
+NODE_DOMAIN=localhost NODE_CONFIG_REPO=operator/node-config SUT_FORGEJO_TOKEN=... \
+  ./host/sut/sutctl.sh run 42 <head-sha>
+```
+
+To exercise the full Forgejo-comment loop for one `agent-dev` PR without
+marking any other open PR as seen, use `SUT_PR=42 ./host/sut/sutctl.sh watch`.
 
 ## What a test does
 
@@ -50,9 +63,18 @@ For each PR head, the controller clones the exact SHA on the host, strips
 `.git`, `.env`, `secrets/`, and host state, transfers the remaining tree over
 the VM's SSH channel, then runs a trusted worker helper. That helper creates
 synthetic configuration, validates the candidate Compose graph, starts the
-staging overlay using throwaway volumes, and executes manifest-declared smoke
-tests. It captures output, tears the stack down, deletes the candidate tree,
-and returns a small JSON result.
+staging overlay using throwaway volumes, builds the candidate's local app
+images in the worker, rejects containers that crash-loop during the initial
+settling window, and executes manifest-declared smoke tests. It captures
+output, tears the stack down, deletes the candidate tree, and returns a small
+JSON result.
+
+Some node services use locally-built app images rather than public registry
+images. Their source is listed in the reviewed [source allowlist](sources.toml)
+with an exact Forgejo ref. The host fetches only those allowed repositories,
+strips their Git metadata, and transfers the source snapshots to the worker for
+local builds. A PR cannot name an arbitrary private repository for the host to
+clone.
 
 `PASS` is test evidence, not approval. The operator still decides whether to
 merge. The model-based reviewer is a later layer, after this deterministic gate

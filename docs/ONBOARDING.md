@@ -38,8 +38,10 @@ second passkey before relying on the node.
 
 The development plane is a core Geth capability, but its isolated test worker
 is provisioned lazily: it consumes disk and virtual-machine resources only on
-machines that will develop the node. Run `host/sut/sutctl.sh doctor`, then
-`host/sut/sutctl.sh init`.
+machines that will develop the node. `./scripts/bootstrap-forgejo.sh` mints a
+separate `SUT_FORGEJO_TOKEN` with only source/PR-read and PR-comment scopes.
+Then run `host/sut/sutctl.sh doctor`, `host/sut/sutctl.sh init`, and
+`host/sut/install-launchd.sh`.
 
 On macOS this creates a stopped, dedicated Colima profile such as
 `geth-sut-01`; on Linux the same interface will target a dedicated KVM worker.

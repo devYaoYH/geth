@@ -21,6 +21,8 @@ PY
 }
 cleanup() {
   docker compose -p "$PROJECT" -f "$ROOT/docker-compose.yml" -f "$ROOT/docker-compose.staging.yml" \
+    --profile apps --profile feeds logs --no-color >>"$LOG" 2>&1 || true
+  docker compose -p "$PROJECT" -f "$ROOT/docker-compose.yml" -f "$ROOT/docker-compose.staging.yml" \
     --profile apps --profile feeds down -v --remove-orphans >>"$LOG" 2>&1 || true
   write_result
 }
@@ -34,6 +36,19 @@ for example in apps/*/env.example; do
   [[ -f "$example" ]] || continue
   cp "$example" "secrets/$(basename "$(dirname "$example")").env"
 done
+
+# App templates deliberately contain blank real credentials. Each required
+# value receives a deterministic-but-non-secret placeholder so service startup
+# tests exercise wiring without reading or reusing the node's secret files.
+python3 - <<'PY'
+import pathlib, re
+for path in pathlib.Path("secrets").glob("*.env"):
+    rows = []
+    for row in path.read_text().splitlines():
+        match = re.match(r"^([A-Z][A-Z0-9_]*)=\s*(?:#.*)?$", row)
+        rows.append(f"{match.group(1)}=sut-{match.group(1).lower()}" if match else row)
+    path.write_text("\n".join(rows) + "\n")
+PY
 
 # Synthetic values satisfy Compose interpolation. They are deliberately not
 # production credentials and remain only in this worker's disposable disk.
@@ -55,7 +70,73 @@ compose=(docker compose -p "$PROJECT" -f docker-compose.yml -f docker-compose.st
 if ! "${compose[@]}" config --quiet >>"$LOG" 2>&1; then
   REASON="compose configuration failed"; exit 1
 fi
-if ! "${compose[@]}" up -d --quiet-pull >>"$LOG" 2>&1; then
+
+# Production bootstrapping creates Radicale's htpasswd and rights files after
+# the stack first comes up.  A disposable staging volume needs the minimum
+# equivalent state before the server can start, otherwise the SUT would report
+# a harness-only crash rather than testing the candidate.  The contents are
+# synthetic and live only in this worker's named volume.
+if "${compose[@]}" config --services | grep -qx radicale; then
+  docker volume create "${PROJECT}_radicale_data" >>"$LOG" 2>&1
+  docker run --rm --user 0:0 -v "${PROJECT}_radicale_data:/data" alpine \
+    sh -c 'mkdir -p /data/collections; : > /data/users; cat > /data/rights <<"EOF"
+[root]
+user: .+
+collection:
+permissions: R
+
+[principal]
+user: .+
+collection: {user}
+permissions: RW
+
+[calendars]
+user: .+
+collection: {user}/[^/]+
+permissions: rw
+EOF' >>"$LOG" 2>&1
+fi
+
+# A clean worker has no locally-built Geth images. Build every app that follows
+# the node's `apps/<name>/Dockerfile -> sovereign-node/<name>:local` convention
+# before Compose resolves image-only fragments (notably search-broker). The
+# candidate controls these Dockerfiles, but only inside this single-use VM.
+for appdir in apps/*; do
+  [[ -f "$appdir/Dockerfile" ]] || continue
+  app="$(basename "$appdir")"
+  if ! docker build -t "sovereign-node/${app}:local" "$appdir" >>"$LOG" 2>&1; then
+    REASON="local image build failed: ${app}"; exit 1
+  fi
+done
+
+# External apps and mirrored upstream images are fetched by the host according
+# to its reviewed source allowlist, then arrive as source-only snapshots under
+# dependencies/. The candidate cannot ask the host to clone another repo.
+if [[ -f dependencies/build-sources.json ]]; then
+  while IFS=$'\t' read -r image name args_json; do
+    context="dependencies/$name"
+    [[ -f "$context/Dockerfile" ]] || { REASON="allowed source has no Dockerfile: ${name}"; exit 1; }
+    build=(docker build -t "$image")
+    while IFS= read -r arg; do build+=(--build-arg "$arg"); done < <(
+      python3 - "$args_json" <<'PY'
+import json, sys
+for key, value in json.loads(sys.argv[1]).items():
+    print(f"{key}={value}")
+PY
+    )
+    if ! "${build[@]}" "$context" >>"$LOG" 2>&1; then
+      REASON="allowed source image build failed: ${name}"; exit 1
+    fi
+  done < <(
+    python3 - <<'PY'
+import json
+for source in json.load(open("dependencies/build-sources.json")):
+    print("\t".join((source["image"], source["name"], json.dumps(source.get("args", {}), sort_keys=True))))
+PY
+  )
+fi
+
+if ! "${compose[@]}" up -d --build --quiet-pull >>"$LOG" 2>&1; then
   REASON="compose startup failed"; exit 1
 fi
 
@@ -67,6 +148,21 @@ while (( $(date +%s) < deadline )); do
 done
 if [[ "${services:-0}" -eq 0 ]]; then
   REASON="no service reached running state within ${TIMEOUT}s"; exit 1
+fi
+
+# `docker compose up -d` can return success while a service immediately enters
+# a crash loop.  Let initial processes settle, then fail before manifest tests
+# if any declared container is already restarting, dead, or exited.  This is
+# intentionally independent of the app manifest so shared infrastructure and
+# new services are covered too.
+for _ in 1 2 3; do sleep 5; done
+unstable="$(
+  "${compose[@]}" ps --services --status restarting
+  "${compose[@]}" ps --services --status dead
+  "${compose[@]}" ps --services --status exited
+)"
+if [[ -n "$unstable" ]]; then
+  REASON="service failed to stabilize: $(tr '\n' ',' <<<"$unstable" | sed 's/,$//')"; exit 1
 fi
 
 # The candidate declares per-app smoke commands in its manifests.  Run those
