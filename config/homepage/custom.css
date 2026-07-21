@@ -62,6 +62,13 @@ html.alodium-chatbar-open #page_container { padding-bottom: 11rem; }
   padding: 0.72rem 1rem !important;
 }
 
+/* The tab bar container must stretch to cover the full height of the tallest
+   tab button — otherwise the background div ends short and the bottom of each
+   tab bleeds through as a transparent strip. */
+[role="tablist"] {
+  align-items: stretch;
+}
+
 .alodium-tab-icon {
   display: inline-flex;
   flex: 0 0 auto;
@@ -218,8 +225,7 @@ html.alodium-chatbar-open #page_container { padding-bottom: 11rem; }
 
 .service {
   border: 0;
-  background: var(--alodium-surface);
-  border-radius: 0.8rem;
+  background: transparent;
   box-shadow: none;
   transition: transform 160ms ease;
 }
@@ -227,7 +233,7 @@ html.alodium-chatbar-open #page_container { padding-bottom: 11rem; }
 .service:hover { transform: translateY(-2px); }
 
 .service .service-card {
-  height: calc(100% - 0.5rem);   /* fill the stretched row, minus its mb-2 */
+  height: 100%;                   /* fill the stretched row completely */
   border: 1px solid var(--alodium-border);
   border-radius: 0.8rem;
   background: var(--alodium-surface);
@@ -362,4 +368,5 @@ html.alodium-chatbar-open #page_container { padding-bottom: 11rem; }
   .alodium-chatbar__composer button { width: 100%; }
   html.alodium-chatbar-open #page_container { padding-bottom: 13rem; }
   [role="tab"] { min-height: 3.45rem; padding: 0.78rem 0.85rem !important; }
+  [role="tablist"] { min-height: 3.45rem; }
 }
