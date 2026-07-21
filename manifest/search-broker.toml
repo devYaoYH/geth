@@ -31,3 +31,8 @@ timeout_seconds = 60
 # scripts/backup.sh instead of file-copied (see Consistent DB snapshots there).
 backup = ["search_audit"]
 update_policy = "staged"
+
+[expose.chat]
+# Chat tool surface for Open WebUI: the toolshim sits on `front` and proxies
+# to the search-broker on `search-chat`. The endpoint list IS the policy.
+tools = "http://search-broker-toolshim:8101"
