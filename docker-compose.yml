@@ -125,6 +125,10 @@ services:
       # app fragments' route.caddy files; /etc/caddy is itself a ro mount, so
       # they land beside it and the Caddyfile imports by absolute path
       - ./apps:/srv/apps:ro
+      # Deploy-info artifact: written by deploy.sh / deploy-watch.sh after a
+      # successful deploy. Served by Caddy at /static/deploy-info.json for the
+      # homepage deploy-info widget (lower-left corner).
+      - ./config/homepage/static:/srv/homepage-static:ro
       - caddy_data:/data
       - caddy_config:/config
     networks:
@@ -280,10 +284,6 @@ services:
       - ./config/homepage:/app/config
       # Generated scenery backgrounds, served from the node itself at /images/*
       - ./config/homepage/images:/app/public/images:ro
-      # Deploy-info artifact: written by deploy.sh / deploy-watch.sh after a
-      # successful deploy, served at /static/deploy-info.json for the homepage
-      # deploy-info widget (lower-left corner).
-      - ./config/homepage/static:/app/public/static
     networks: [edge, dockerwatch, front]   # front: health-pings the egress-less apps
 
   # Read-only docker status for the dashboard: the proxy exposes ONLY
