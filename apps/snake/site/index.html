@@ -63,9 +63,12 @@
     .overlay {
       position: absolute;
       inset: 0;
-      display: grid;
+      display: none;
       place-items: center;
       pointer-events: none;
+    }
+    .overlay.visible {
+      display: grid;
     }
     .overlay .panel {
       background: rgba(21,25,36,0.92);
@@ -91,7 +94,7 @@
       </header>
       <div style="position: relative">
         <canvas id="game" width="640" height="480" aria-label="Snake game canvas"></canvas>
-        <div class="overlay" id="overlay" hidden>
+        <div class="overlay" id="overlay">
           <div class="panel">
             <div class="title" id="stateTitle">Paused</div>
             <p class="subtitle" id="stateSubtitle"></p>
@@ -166,7 +169,7 @@
       running = false;
       dead = false;
       started = false;
-      overlay.hidden = false;
+      overlay.classList.add('visible');
       titleEl.textContent = 'Snake';
       subEl.innerHTML = 'Press <span class="accent">any key</span> to start';
       scoreEl.textContent = `Score: ${score}`;
@@ -191,7 +194,7 @@
       if (!started) {
         started = true;
         running = true;
-        overlay.hidden = true;
+        overlay.classList.remove('visible');
         // Also process direction on the starting press
         if (k === 'arrowup' || k === 'w') setDir(0,-1);
         else if (k === 'arrowdown' || k === 's') setDir(0,1);
@@ -239,7 +242,7 @@
     function die(){
       running = false;
       dead = true;
-      overlay.hidden = false;
+      overlay.classList.add('visible');
       titleEl.textContent = 'Game Over';
       subEl.innerHTML = `Score <span class="accent">${score}</span> · Press <span class="accent">Space</span> to restart`;
     }
