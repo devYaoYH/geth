@@ -59,6 +59,18 @@ git push origin main || echo "deploy: WARN could not push origin (continuing; no
 #     here and reused by the restart pass in step 6 — OLD_HEAD..HEAD is fixed
 #     after the ff-merge above.
 CHANGED=$(git diff --name-only "$OLD_HEAD" HEAD)
+# Enumerate services across ALL declared profiles, not just the enabled ones.
+# `docker compose config --services` filters to active profiles, so a
+# profile-gated app (e.g. on-demand snake) is INVISIBLE to the gate below —
+# its rebuild gets skipped, and step 5 then recreates it from the STALE image
+# (recreate with no new image = no change; exactly what stranded snake's fixes).
+# `--profiles` lists every profile defined anywhere; feeding them all back via
+# COMPOSE_PROFILES makes both `config --services` and `build` see the whole set.
+# This only affects the BUILD pass — naming a service builds just that image and
+# starts nothing, so the operator still owns which profiles actually run (step 5
+# is unchanged and only recreates services that are already running).
+ALL_PROFILES=$(docker compose config --profiles 2>/dev/null | paste -sd, -)
+BUILDABLE=$(COMPOSE_PROFILES="$ALL_PROFILES" docker compose config --services 2>/dev/null)
 for app in $(printf '%s\n' "$CHANGED" | sed -n 's#^apps/\([^/]*\)/.*#\1#p' | sort -u); do
   # Build inputs = context files baked into the image; exclude compose/proxy
   # metadata (same exclusion the step-6 restart pass uses). No baked-in file
@@ -66,10 +78,11 @@ for app in $(printf '%s\n' "$CHANGED" | sed -n 's#^apps/\([^/]*\)/.*#\1#p' | sor
   printf '%s\n' "$CHANGED" | grep "^apps/$app/" \
     | grep -qvE "^apps/$app/(compose\.yaml|route\.caddy|env\.example)$" || continue
   # Only services that actually build from a context; compose build errors on
-  # image-only services, so gate on the app being a known compose service.
-  if docker compose config --services 2>/dev/null | grep -qx "$app"; then
+  # image-only services, so gate on the app being a known compose service
+  # (across all profiles, per BUILDABLE above).
+  if printf '%s\n' "$BUILDABLE" | grep -qx "$app"; then
     echo "   rebuilding $app image (build inputs changed)"
-    docker compose build "$app" \
+    COMPOSE_PROFILES="$ALL_PROFILES" docker compose build "$app" \
       || echo "deploy: WARN build failed for $app (continuing; step 5 uses existing image)"
   fi
 done
